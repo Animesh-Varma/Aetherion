@@ -1,8 +1,8 @@
-# Instagram AI Assistant Bot - Raphael
+# Instagram AI Assistant Bot
 
 ## 🤖 Description
 
-Raphael is a sophisticated and autonomous digital assistant designed to operate within an Instagram environment. It uses the `instagrapi` library to interact with Instagram DMs and Google's Generative AI (Gemini Pro) to understand messages and generate intelligent, context-aware responses. Its primary role is to assist users effectively while serving the interests of its owner.
+Raphael (default name) is a sophisticated and autonomous digital assistant designed to operate within an Instagram environment. It uses the `instagrapi` library to interact with Instagram DMs and Google's Generative AI (Gemini Pro) to understand messages and generate intelligent, context-aware responses. Its primary role is to assist users effectively while serving the interests of its owner.
 
 ## ✨ Features
 
@@ -93,4 +93,4 @@ The bot will log in and start monitoring for new messages. To stop the bot, pres
 
 ## 👤 Creator
 
-This bot, Raphael, was conceptualized and developed by Animesh Varma.
+This bot was conceptualized and developed by Animesh Varma.

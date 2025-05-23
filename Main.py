@@ -110,7 +110,7 @@ tools = Tool(function_declarations=[
     fetch_followers_followings_func
 ])
 
-model = genai.GenerativeModel("gemini-2.5-pro-exp-03-25", tools=[tools])
+model = genai.GenerativeModel("gemini-2.5-flash-preview-05-20", tools=[tools])
 
 def format_message(template_string: str, **kwargs) -> str:
     """
