@@ -7,11 +7,11 @@ API_KEY = os.getenv("API_KEY")
 SESSION_ID = os.getenv("SESSION_ID")
 OWNER_USERNAME = os.getenv("OWNER_USERNAME")
 
-BOT_NAME = "raphael"
-THREAD_FETCH_AMOUNT = 20
-MESSAGE_FETCH_AMOUNT = 50
-MIN_SLEEP_TIME = 1
-MAX_SLEEP_TIME = 6
+BOT_NAME = os.getenv("BOT_NAME", "raphael")
+THREAD_FETCH_AMOUNT = int(os.getenv("THREAD_FETCH_AMOUNT", "20"))
+MESSAGE_FETCH_AMOUNT = int(os.getenv("MESSAGE_FETCH_AMOUNT", "50"))
+MIN_SLEEP_TIME = int(os.getenv("MIN_SLEEP_TIME", "1"))
+MAX_SLEEP_TIME = int(os.getenv("MAX_SLEEP_TIME", "6"))
 
 PROMPT_FIRST_TEMPLATE = """
 You are Raphael, a sophisticated and autonomous digital assistant operating within the Instagram context of {bot_username_in_context}.
