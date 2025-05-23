@@ -1,4 +1,4 @@
-# Instagram AI Assistant Bot
+# Project Aetherion
 
 ## 🤖 Description
 
