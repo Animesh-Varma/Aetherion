@@ -89,7 +89,8 @@ The bot will log in and start monitoring for new messages. To stop the bot, pres
 ## 🛠️ Built With
 
 *   [instagrapi](https://github.com/adw0rd/instagrapi) - For Instagram interaction.
-*   [google-generativeai](https://github.com/google/generative-ai-python) - For AI-powered responses.
+*   
+google-generativeai - For AI-powered responses.
 
 ## 👤 Creator
 
