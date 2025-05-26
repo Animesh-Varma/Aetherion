@@ -18,7 +18,7 @@ DM_INBOX_ICON_RESID = "com.instagram.android:id/action_bar_inbox_button"
 DM_LIST_HEADER_TEXT_RESID = "com.instagram.android:id/action_bar_title_subtitle_container"  # Container for username/title
 DM_LIST_SEARCH_ACTIVATION_ELEMENT_RESID = "com.instagram.android:id/animated_hints_text_layout"
 DM_LIST_SEARCH_INPUT_FIELD_RESID = "com.instagram.android:id/row_thread_composer_edittext"  # This might be the container, actual EditText inside it.
-DM_LIST_ACTUAL_SEARCH_EDITTEXT_RESID = "com.instagram.android:id/row_thread_composer_edittext" # Often an EditText appears after activating search. Find its ID.
+DM_LIST_ACTUAL_SEARCH_EDITTEXT_RESID = "com.instagram.android:id/row_thread_composer_edittext"  # Often an EditText appears after activating search. Find its ID.
 
 DM_THREAD_ITEM_CONTAINER_RESID = "com.instagram.android:id/row_inbox_container"
 DM_THREAD_ITEM_USERNAME_TEXT_RESID = "com.instagram.android:id/row_inbox_username"
@@ -93,6 +93,13 @@ def ensure_instagram_open(d, package_name="com.instagram.android"):
 
 
 def go_to_home(d):
+    # Check if currently on DM list screen, if so, go back to access main tabs
+    if d(resourceId=DM_LIST_HEADER_TEXT_RESID).exists or \
+            d(description=DM_LIST_NEW_CHAT_BUTTON_DESC).exists:
+        print("Currently on DM list, pressing back to reach main tabs before going home.")
+        d.press("back")
+        time.sleep(1.5)  # Allow UI to transition
+
     ensure_instagram_open(d)
     home_button = d(resourceId=HOME_TAB_RESID)
     if not safe_click(home_button):
@@ -101,8 +108,16 @@ def go_to_home(d):
 
 
 def go_to_dm_list(d):
+    # Check if already on the DM list screen
+    # Using DM_LIST_HEADER_TEXT_RESID and also checking for NEW_CHAT_BUTTON as a secondary confirmation
+    if d(resourceId=DM_LIST_HEADER_TEXT_RESID).exists and \
+            (d(description=DM_LIST_NEW_CHAT_BUTTON_DESC).exists or d(
+                resourceId=DM_LIST_SEARCH_ACTIVATION_ELEMENT_RESID).exists):  # Added more checks for robustness
+        print("Already on DM list. No action needed.")
+        return True
+
     ensure_instagram_open(d)
-    go_to_home(d)
+    go_to_home(d)  # This function now also checks if it needs to go back from DM list first
     dm_button = d(resourceId=DM_INBOX_ICON_RESID)
     if not safe_click(dm_button, timeout=10):
         print(f"ERROR: DM icon '{DM_INBOX_ICON_RESID}' not found on home screen.")
@@ -310,16 +325,30 @@ def go_to_user_profile(d, target_username):
 
 def go_to_own_profile(d, bot_username):
     ensure_instagram_open(d)
+
+    # Check if currently on DM list screen, if so, go back to access main tabs
+    # Using DM_LIST_HEADER_TEXT_RESID and DM_LIST_NEW_CHAT_BUTTON_DESC
+    if d(resourceId=DM_LIST_HEADER_TEXT_RESID).exists or \
+            d(description=DM_LIST_NEW_CHAT_BUTTON_DESC).exists:
+        print("Currently on DM list, pressing back to reach main tabs.")
+        d.press("back")
+        time.sleep(1.5)  # Allow UI to transition
+
     profile_tab_button = d(resourceId=PROFILE_TAB_RESID)
     if not safe_click(profile_tab_button):
         print(f"ERROR: Profile tab/button '{PROFILE_TAB_RESID}' not found.")
         return False
     time.sleep(3)
-    if d(resourceId=PROFILE_USERNAME_HEADER_TEXT_RESID, text=bot_username).wait(
-            timeout=5):  # Assuming header text matches username
-        print("Successfully on own profile.")
-        return True
-    print(f"ERROR: Navigated to profile tab, but header username does not match '{bot_username}'.")
+    # Use specific ID for own profile header username, as it differs from other users' profile headers
+    # Case-insensitive check for the username text
+    profile_header_el = d(resourceId="com.instagram.android:id/action_bar_large_title_auto_size")
+    if profile_header_el.wait(timeout=5):
+        header_text = profile_header_el.info.get('text', '')
+        if bot_username.lower() == header_text.lower():
+            print("Successfully on own profile.")
+            return True
+    print(
+        f"ERROR: Navigated to profile tab, but header username does not match '{bot_username}' using specific ID 'com.instagram.android:id/action_bar_large_title_auto_size'. Header text found: '{header_text if 'header_text' in locals() else 'N/A'}'")
     return False
 
 
@@ -418,7 +447,9 @@ def send_dm_from_profile(d, target_username, message_text):
 
     return send_dm_in_open_thread(d, message_text)
 
-def search_and_open_dm_with_user(d, target_username, bot_username): # bot_username is not used here but good for consistency
+
+def search_and_open_dm_with_user(d, target_username,
+                                 bot_username):  # bot_username is not used here but good for consistency
     ensure_instagram_open(d)
     print(f"Trying to find/start DM with {target_username}...")
     if not go_to_dm_list(d):
@@ -430,32 +461,33 @@ def search_and_open_dm_with_user(d, target_username, bot_username): # bot_userna
         return True
 
     # 2. If not found in initial DM list, attempt to create a new chat using the user-provided flow
-    print(f"Thread with {target_username} not found in initial DM list. Attempting to create new chat following specified flow.")
+    print(
+        f"Thread with {target_username} not found in initial DM list. Attempting to create new chat following specified flow.")
 
     # Step 1: Click New message (has content desc)
-    new_chat_btn = d(description=DM_LIST_NEW_CHAT_BUTTON_DESC) # Using content-desc as per your constant
+    new_chat_btn = d(description=DM_LIST_NEW_CHAT_BUTTON_DESC)  # Using content-desc as per your constant
     if not safe_click(new_chat_btn):
         print(f"ERROR: New chat button (desc: '{DM_LIST_NEW_CHAT_BUTTON_DESC}') not found in DM list.")
         return False
     print("Clicked 'New message' button. Waiting for New Chat screen...")
-    time.sleep(2.5) # Allow time for the new chat screen to load
+    time.sleep(2.5)  # Allow time for the new chat screen to load
 
     # Step 2: Click and type the username in (com.instagram.android:id/search_edit_text)(resource id)
     # NEW_CHAT_TO_FIELD_INPUT_RESID is "com.instagram.android:id/search_edit_text"
     search_field_new_chat = d(resourceId=NEW_CHAT_TO_FIELD_INPUT_RESID)
-    if not safe_click(search_field_new_chat): # Click to focus
+    if not safe_click(search_field_new_chat):  # Click to focus
         print(f"ERROR: 'To:' field ('{NEW_CHAT_TO_FIELD_INPUT_RESID}') not found or not clickable in new chat screen.")
         # If clicking fails, sometimes the field is already focused or needs a different interaction
         # As a fallback, try sending keys directly if element exists
         if not search_field_new_chat.exists:
-            d.press("back") # Go back if field truly not found
+            d.press("back")  # Go back if field truly not found
             return False
         print(f"WARN: Could not click '{NEW_CHAT_TO_FIELD_INPUT_RESID}', attempting to send keys directly.")
 
-    d.clear_text() # Clear any pre-existing text
+    d.clear_text()  # Clear any pre-existing text
     d.send_keys(target_username)
     print(f"Typed '{target_username}' into New Chat search. Waiting for results...")
-    time.sleep(3.5) # Allow time for search results to populate
+    time.sleep(3.5)  # Allow time for search results to populate
 
     # Step 3: Click the user whose resource id com.instagram.android:id/row_user_secondary_name matches the username
     # NEW_CHAT_USER_RESULT_USERNAME_TEXT_RESID is "com.instagram.android:id/row_user_secondary_name"
@@ -476,9 +508,9 @@ def search_and_open_dm_with_user(d, target_username, bot_username): # bot_userna
                 if target_username.lower() == current_username_text:
                     print(f"Found exact match for {target_username}. Clicking this user entry.")
                     # According to your flow, clicking this username element directly should work.
-                    if safe_click(username_el): # Click the username TextView directly
+                    if safe_click(username_el):  # Click the username TextView directly
                         user_selected_and_navigated = True
-                        break # Exit loop once user is clicked
+                        break  # Exit loop once user is clicked
                     else:
                         print(f"ERROR: Failed to click the username element for {target_username}.")
                         # Potentially try clicking the container as a fallback if direct username click fails
@@ -491,30 +523,32 @@ def search_and_open_dm_with_user(d, target_username, bot_username): # bot_userna
 
     if not user_selected_and_navigated:
         print(f"ERROR: User '{target_username}' not found in new chat search results, or failed to click.")
-        d.press("back") # Go back from the new chat screen
+        d.press("back")  # Go back from the new chat screen
         return False
 
     print(f"Clicked on {target_username}. Expecting to be on chat screen...")
-    time.sleep(3.5) # Wait for the chat screen to fully load after selection
+    time.sleep(3.5)  # Wait for the chat screen to fully load after selection
 
     # Step 4 & 5 are handled by verifying we are on the chat screen and then the main bot loop will use send_dm_in_open_thread
     # Verify we are on the chat screen with the correct user
     header_el_verify = d(resourceId=DM_CHAT_HEADER_USERNAME_TEXT_RESID)
-    if header_el_verify.wait(timeout=7): # Increased timeout for screen transition
+    if header_el_verify.wait(timeout=7):  # Increased timeout for screen transition
         header_identifier_verify = _get_element_identifier(header_el_verify.info)
         if header_identifier_verify and target_username.lower() in header_identifier_verify.lower():
             print(f"Successfully navigated to chat screen with {target_username}. Header: {header_identifier_verify}")
             # The main bot loop will now handle sending the message using send_dm_in_open_thread
             # if the 'send_message' function was called by Gemini.
-            return True # Indicate that the chat is open and ready.
+            return True  # Indicate that the chat is open and ready.
         else:
-            print(f"WARN: Navigated to a chat screen, but header identifier '{header_identifier_verify}' does not match '{target_username}'.")
+            print(
+                f"WARN: Navigated to a chat screen, but header identifier '{header_identifier_verify}' does not match '{target_username}'.")
     else:
-        print(f"ERROR: Did not land on the expected chat screen with {target_username} after selection (header element '{DM_CHAT_HEADER_USERNAME_TEXT_RESID}' not found or timed out).")
+        print(
+            f"ERROR: Did not land on the expected chat screen with {target_username} after selection (header element '{DM_CHAT_HEADER_USERNAME_TEXT_RESID}' not found or timed out).")
 
     # If verification fails, attempt to go back to a known state (DM list)
     print("Failed to verify chat screen for new chat. Returning to DM list.")
-    d.press("back") # Try to go back from whatever screen it's on
+    d.press("back")  # Try to go back from whatever screen it's on
     time.sleep(0.5)
     # A second back press might be needed if the "new chat user selection" is a layer above the actual chat creation screen
     # If clicking the user directly opens the chat, one back might be enough.
@@ -526,3 +560,198 @@ def search_and_open_dm_with_user(d, target_username, bot_username): # bot_userna
     # If this often leaves you on an intermediate screen, you might need a loop or specific check.
 
     return False
+
+
+def return_to_dm_list_from_thread(d):
+    """
+    Attempts to return to the DM list screen from an open DM thread by pressing back.
+    Verifies the return by checking for known DM list elements.
+    """
+    print("Attempting to return to DM list from thread by pressing back...")
+    d.press("back")
+    time.sleep(1.5)  # Allow UI to transition
+
+    # Verify by checking for a known element on the DM list screen
+    dm_list_header = d(resourceId=DM_LIST_HEADER_TEXT_RESID)
+    new_chat_button = d(description=DM_LIST_NEW_CHAT_BUTTON_DESC)  # Alternative check
+
+    if dm_list_header.wait(timeout=3) or new_chat_button.wait(timeout=3):
+        print("Successfully returned to DM list screen.")
+        return True
+    else:
+        print("WARN: After pressing back, DM list screen elements not immediately found.")
+        # As a fallback, try the more comprehensive go_to_dm_list if simple back fails
+        print("WARN: Attempting full go_to_dm_list as fallback.")
+        return go_to_dm_list(d)
+
+
+def check_for_instagram_dm_notification(d, package_name="com.instagram.android"):
+    """
+    Opens the notification shade, checks for Instagram DM notifications,
+    clicks on a relevant one if found, and closes the shade.
+    Returns True if a DM notification was found and clicked, False otherwise.
+    """
+    print("Opening notification shade to check for Instagram DMs...")
+    d.open_notification()
+    time.sleep(2)  # Allow notifications to load
+
+    # Attempt to find notifications belonging to the Instagram package
+    # Common resource IDs for notification elements (these can vary by Android version/OEM)
+    # Android Oreo and above often use "android:id/title" for title, "android:id/text" for content.
+    # Notifications are usually within a RecyclerView or similar container.
+    # We'll iterate through elements that could be individual notifications.
+    # A common parent for notifications might be 'com.android.systemui:id/notification_stack_scroller'
+
+    # Generic approach: look for text elements that might contain app name or DM keywords
+    # This is less precise than package name checking if directly available on the notification object
+    # Uiautomator2's d.info['notifications'] or d.notifications might be more direct if available and working.
+    # However, iterating through visible elements is a common fallback.
+
+    # Let's assume notifications are list items, often with a TextView for the app name and another for content.
+    # We'll look for any TextView containing "Instagram" first, then check its siblings/children for DM keywords.
+    # This is a heuristic approach.
+
+    # Try to get all top-level notifications
+    # Common notification container IDs:
+    # "com.android.systemui:id/notification_stack_scroller"
+    # "android:id/notification_list_holder" (older Android)
+    # Or simply look for all TextViews and filter.
+
+    # Simpler: Iterate through all visible text elements in the notification shade
+    # This is broad but can catch notifications if specific selectors fail.
+    # We need to identify which elements are distinct notifications.
+
+    # Let's try finding notifications by looking for elements with a text attribute that might be the app name
+    # or keywords. A more robust way would be to get a list of notification objects if the uiautomator2
+    # version/device supports it well (e.g., d.notifications). Since direct access might be tricky,
+    # we'll rely on visual cues.
+
+    # Heuristic: Find elements with class 'android.widget.TextView' that could be part of a notification.
+    # Then check their parents or siblings for package info or more text.
+    # For now, let's try to find notifications that explicitly mention "Instagram" and keywords.
+
+    # A common resource-id for the app name in a notification is "android:id/app_name_text"
+    # A common resource-id for the title is "android:id/title"
+    # A common resource-id for the content is "android:id/text" or "android:id/big_text"
+
+    notification_found_and_clicked = False
+
+    # Iterate over potential notification views. This is highly dependent on OS version.
+    # A common approach is to find elements with a known notification title or text resource ID.
+    # Let's assume notifications have a title and text.
+    # notifications = d(resourceIdMatches="android:id/notification_main_column") # Example parent
+    # Or, more simply, check for text containing "Instagram"
+
+    # This is a simplified approach: look for any text view containing "Instagram" and "message" or "DM"
+    # It's not perfect, as it relies on text visible on screen.
+    # A more robust solution would use d.notifications if available and reliable.
+
+    possible_notifications = d(className="android.widget.TextView")
+
+    # Prioritize notifications containing "Instagram" and typical DM keywords.
+    # Keywords that might indicate a new DM: "New message", "sent you a message", "DM", "reply"
+    dm_keywords = ["new message", "sent you a message", "dm", "reply", "sent a message"]
+
+    # Look for notifications that have "Instagram" in their title or text.
+    # This is a very broad search as a starting point.
+    # A more specific search would involve checking notification structures.
+    # For now, iterate through all TextViews in the shade.
+
+    # The d.info['notifications'] or d.notifications() method is preferred if it works reliably.
+    # As a fallback, we iterate visible elements.
+
+    # Look for notifications linked to the Instagram package.
+    # This is a common pattern for notifications, but might need adjustment.
+    # The structure is often: ViewGroup (notification) -> ... -> TextView (title/text)
+    # We're looking for any clickable element within a notification from Instagram that seems like a DM.
+
+    # Generic notification elements to check
+    # Common notification title ID: "android:id/title"
+    # Common notification text ID: "android:id/text"
+    # Common notification app name ID: "android:id/app_name_text"
+
+    # Let's iterate through potential notification parent views
+    # This is a guess; actual parent view IDs/classes might differ
+    notification_parents = d(classNameMatches="android.widget.(FrameLayout|LinearLayout|RelativeLayout)",
+                             packageName=package_name)
+    if not notification_parents.exists:
+        # Fallback if package specific search yields nothing, broaden search
+        notification_parents = d(classNameMatches="android.widget.(FrameLayout|LinearLayout|RelativeLayout)")
+
+    for i in range(notification_parents.count):
+        parent_view = notification_parents[i]
+
+        # Check if this view itself has text indicating an Instagram DM
+        parent_info = parent_view.info
+        parent_text_content = (parent_info.get('text', '') + " " + parent_info.get('contentDescription', '')).lower()
+
+        is_instagram_notification = package_name in parent_info.get('packageName',
+                                                                    '') or "instagram" in parent_text_content
+
+        if is_instagram_notification:
+            # Now check for DM keywords within this potential notification
+            # Search for text views within this parent_view
+            text_views = parent_view.child(className="android.widget.TextView")
+            notification_text_combined = parent_text_content  # Start with parent's text
+
+            for tv_idx in range(text_views.count):
+                tv = text_views[tv_idx]
+                tv_info = tv.info
+                notification_text_combined += " " + (
+                            tv_info.get('text', '') + " " + tv_info.get('contentDescription', '')).lower()
+
+            is_dm = any(keyword in notification_text_combined for keyword in dm_keywords)
+
+            if is_dm:
+                print(f"Instagram DM notification found. Text: '{notification_text_combined[:100].strip()}...'")
+                if safe_click(parent_view, timeout=3):  # Click the parent view of the notification
+                    print("Clicked on Instagram DM notification.")
+                    time.sleep(4)  # Allow app to open and transition
+                    # Attempt to close notification shade - it might auto-close
+                    # A single back press is often enough if it didn't auto-close.
+                    # Or try d.close_notification() if available and reliable.
+                    current_app_after_click = d.app_current()
+                    if current_app_after_click.get('package') == package_name:
+                        print(f"Instagram app is in foreground after clicking notification.")
+                        # If shade is still open, try to close it.
+                        # Checking if shade is open is hard. Assume it might be and try a gentle close.
+                        # A swipe up from bottom or a back press.
+                        # d.press("back") # This might go back in the app, be careful.
+                        # d.close_notification() # Preferred if it works consistently.
+                        # For now, assume it auto-closes or the app takes full screen.
+                        # If not, this might need refinement.
+                        # Let's try a specific close if the system UI is still active.
+                        if d(packageName="com.android.systemui").exists:  # Check if system UI elements are still focusable
+                            print("Attempting to close notification shade with back press (SystemUI was active).")
+                            d.press("back")  # Attempt to close notification shade
+                            time.sleep(0.5)
+
+                    notification_found_and_clicked = True
+                    break  # Exit loop once a notification is handled
+                else:
+                    print(
+                        f"WARN: Found Instagram DM notification but failed to click it: {notification_text_combined[:100]}")
+        if notification_found_and_clicked:
+            break
+
+    if not notification_found_and_clicked:
+        print("No relevant Instagram DM notification found.")
+
+    # Ensure notification shade is closed, regardless of finding a notification
+    # d.close_notification() can be aggressive. A back press is usually safer if shade is open.
+    # Check if shade is likely open: if current app is SystemUI or if a known shade element exists.
+    # This is tricky. For simplicity, we'll try a single back press if no notification was clicked,
+    # as clicking should ideally close it or take focus.
+    if not notification_found_and_clicked:
+        # If we didn't click anything, the shade is definitely still open.
+        print("Closing notification shade (no relevant DM found or click failed) with back press.")
+        d.press("back")  # Attempt to close notification shade
+        time.sleep(1)  # Increased sleep after back press to ensure shade closes
+
+    # One final check: if systemui is still the current app, something went wrong with closing shade.
+    if d.app_current()['package'] == 'com.android.systemui':
+        print("WARN: Notification shade still seems to be open. Attempting a back press.")
+        d.press("back")
+        time.sleep(1)
+
+    return notification_found_and_clicked
