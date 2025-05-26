@@ -6,17 +6,23 @@ load_dotenv()
 
 API_KEY = os.getenv("API_KEY")
 OWNER_USERNAME = os.getenv("OWNER_USERNAME")
+# BOT_NAME should be the exact Instagram username of the bot
 BOT_NAME = os.getenv("BOT_NAME")
+BOT_DISPLAY_NAME = os.getenv("BOT_DISPLAY_NAME", BOT_NAME) # Defaults to BOT_NAME if not set
 
 THREAD_FETCH_AMOUNT = int(os.getenv("THREAD_FETCH_AMOUNT", "10"))
 MESSAGE_FETCH_AMOUNT = int(os.getenv("MESSAGE_FETCH_AMOUNT", "15"))
 MIN_SLEEP_TIME = int(os.getenv("MIN_SLEEP_TIME", "60"))
 MAX_SLEEP_TIME = int(os.getenv("MAX_SLEEP_TIME", "180"))
 
+# Notification check interval (shorter, for when polling notifications)
+NOTIFICATION_CHECK_INTERVAL_MIN = int(os.getenv("NOTIFICATION_CHECK_INTERVAL_MIN", "15"))
+NOTIFICATION_CHECK_INTERVAL_MAX = int(os.getenv("NOTIFICATION_CHECK_INTERVAL_MAX", "30"))
+
 # Your PROMPT_FIRST_TEMPLATE and PROMPT_SECOND_TEMPLATE
 # (Copied from your original script or refined)
 PROMPT_FIRST_TEMPLATE = """
-You are [[bot_username_in_context]], an AI assistant for [[owner_username]].
+You are [[bot_display_name]], an AI assistant for [[owner_username]]. Your Instagram username is [[bot_actual_username]].
 Current date: [[current_date]].
 Message from: [[sender_username]] (Full Name: [[sender_full_name]], Followers: [[sender_follower_count]])
 Thread ID (Peer/Group): [[thread_id]]
@@ -31,7 +37,7 @@ Note: 'sender_full_name' and 'sender_follower_count' might be 'Unknown (UI)' or 
 """
 
 PROMPT_SECOND_TEMPLATE = """
-You are [[bot_username_in_context]]. You just attempted/performed the function '[[function_name]]' in thread [[thread_id]]
+You are [[bot_display_name]]. Your Instagram username is [[bot_actual_username]]. You just attempted/performed the function '[[function_name]]' in thread [[thread_id]]
 for user [[sender_username]] (Full Name: [[sender_full_name]]).
 Original message: "[[message_text]]"
 Function execution details (summary of what you told the user you did):
