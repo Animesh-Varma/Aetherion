@@ -21,6 +21,9 @@ NOTIFICATION_CHECK_INTERVAL = int(os.getenv("NOTIFICATION_CHECK_INTERVAL", "1"))
 # Interval for refreshing the DM list when actively processing (e.g., after handling a notification)
 DM_LIST_CHECK_INTERVAL = int(os.getenv("DM_LIST_CHECK_INTERVAL", "1"))
 
+# Interval in seconds to check for new DMs (blue dot) when none are found.
+BLUE_DOT_CHECK_INTERVAL = int(os.getenv("BLUE_DOT_CHECK_INTERVAL", "7"))
+
 # Your PROMPT_FIRST_TEMPLATE and PROMPT_SECOND_TEMPLATE
 # (Copied from your original script or refined)
 PROMPT_FIRST_TEMPLATE = """

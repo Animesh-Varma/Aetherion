@@ -29,7 +29,7 @@ DM_THREAD_ITEM_UNREAD_INDICATOR_RESID = "com.instagram.android:id/thread_indicat
 DM_LIST_NEW_CHAT_BUTTON_DESC = "New message"  # Using content-desc
 
 # III. Inside an Active DM Chat/Thread Screen
-DM_CHAT_HEADER_USERNAME_TEXT_RESID = "com.instagram.android:id/header_subtitle"  # User confirmed this holds username in content-desc
+DM_CHAT_HEADER_USERNAME_TEXT_RESID = "com.instagram.android:id/header_title"  # User confirmed this holds username in content-desc
 DM_CHAT_MESSAGE_BUBBLE_CONTAINER_RESID = "com.instagram.android:id/direct_text_message_text_parent"
 DM_CHAT_MESSAGE_TEXT_VIEW_RESID = "com.instagram.android:id/direct_text_message_text_view"
 DM_CHAT_MESSAGE_SENDER_NAME_TEXT_RESID = "com.instagram.android:id/username"  # For groups
@@ -755,3 +755,113 @@ def check_for_instagram_dm_notification(d, package_name="com.instagram.android")
         time.sleep(1)
 
     return notification_found_and_clicked
+
+
+def check_for_unread_dm_threads(d_device):
+    """
+    Checks for DM threads marked as unread on the Instagram DM list screen.
+
+    This function navigates to the DM list, then looks at each visible thread
+    to see if it has an "unread" indicator (like a blue dot). If it does,
+    it gets the username associated with that thread.
+
+    Args:
+        d_device: The uiautomator2 device object. This object is our way of
+                  interacting with the Android device, like telling it to tap
+                  buttons or find elements on the screen.
+
+    Returns:
+        A list of strings, where each string is a username from an unread DM
+        thread. If no unread threads are found on the currently visible part
+        of the screen, or if there's an issue accessing the DM list,
+        it returns an empty list.
+
+    Important Concepts for Beginners:
+    - Resource ID (e.g., DM_THREAD_ITEM_CONTAINER_RESID): This is a unique
+      name given to a UI element (like a button, text field, or layout area)
+      in an Android app's code. We use these IDs to reliably find specific
+      elements on the screen. Think of it like a unique ID for an HTML element
+      in web development (e.g., id="myButton").
+    - UI Element: Anything you see on the screen of an app – buttons, text,
+      images, input fields, containers holding other elements, etc.
+    - d_device(...): This is how we tell uiautomator2 to find an element.
+      For example, d_device(resourceId="some_id") means "find the element
+      that has the resource ID 'some_id'".
+    - .exists: After trying to find an element, .exists tells us if it was
+      actually found on the screen (True or False).
+    - .child(...): If an element is a container (like a box holding other things),
+      .child(...) lets us find an element specifically inside that container.
+    - .info['text']: If an element is a text field or has text, .info['text']
+      retrieves that visible text content.
+    """
+    print("Checking for unread DM threads...")
+    unread_thread_usernames = []
+
+    # Step 1: Ensure we are on the DM list screen.
+    # The go_to_dm_list function handles navigation and returns True if successful.
+    if not go_to_dm_list(d_device):
+        print("ERROR: Could not navigate to DM list. Cannot check for unread threads.")
+        return []  # Return empty list if we can't even get to the DMs
+
+    # Step 2: Find all visible DM thread item containers.
+    # DM_THREAD_ITEM_CONTAINER_RESID is a constant (e.g., "com.instagram.android:id/row_inbox_container")
+    # holding the resource ID for the container of each individual DM thread shown in the list.
+
+    # First, get the selector for all DM thread item containers currently visible on the screen.
+    # A selector is like a query or a recipe that uiautomator2 uses to find UI elements.
+    # It doesn't get the elements immediately, but it knows how to find them.
+    thread_container_selector = d_device(resourceId=DM_THREAD_ITEM_CONTAINER_RESID)
+
+    # Before trying to loop, it's crucial to check if any such elements actually exist on the screen.
+    # The .exists attribute on a selector returns True if one or more elements matching the criteria are found, False otherwise.
+    if thread_container_selector.exists:
+        # If elements are found, .count tells us how many matching elements are currently on the screen.
+        # We then loop from 0 up to (but not including) the count, to process each element individually.
+        num_containers = thread_container_selector.count
+        print(f"Found {num_containers} DM thread containers on screen. Checking each for unread status...")
+
+        # Step 3 & 4: Iterate through each container and check for unread indicator & get username.
+        for i in range(num_containers):
+            # We get a specific UiObject (representing a single thread container) by using its index with the selector.
+            # This 'container' is now a direct reference to one of the DM thread rows on the screen.
+            container = thread_container_selector[i]
+
+            # Now, within this specific 'container' (which is a UiObject),
+            # we look for the unread indicator (e.g., the blue dot).
+            # DM_THREAD_ITEM_UNREAD_INDICATOR_RESID (e.g., "com.instagram.android:id/thread_indicator_status_dot")
+            # is the ID for that blue dot.
+            # .child() is used here to find an element *inside* the current 'container' UiObject.
+            unread_indicator = container.child(resourceId=DM_THREAD_ITEM_UNREAD_INDICATOR_RESID)
+
+            # If the unread indicator (blue dot) exists within this container...
+            if unread_indicator.exists:
+                # ...then this thread is unread. We need to get the username.
+                # DM_THREAD_ITEM_USERNAME_TEXT_RESID (e.g., "com.instagram.android:id/row_inbox_username")
+                # is the ID for the TextView element that holds the username.
+                username_element = container.child(resourceId=DM_THREAD_ITEM_USERNAME_TEXT_RESID)
+
+                # If the username element exists...
+                if username_element.exists:
+                    username = username_element.info.get('text') # Get the actual text content
+                    if username: # Ensure the username is not empty or None
+                        print(f"Found unread thread with username: {username}")
+                        unread_thread_usernames.append(username)
+                    else:
+                        print("WARN: Found unread indicator, but username element has no text.")
+                else:
+                    print("WARN: Found unread indicator, but could not find username element in the same container.")
+            # If unread_indicator.exists is false for this container, it means this thread isn't marked as unread.
+            # So, we just move to the next container in the loop.
+    else:
+        # This block executes if the thread_container_selector.exists was false,
+        # meaning no DM thread containers were found on the screen at all.
+        print("No DM thread containers found on the screen.")
+
+    # Step 5: Return the list of usernames from unread threads.
+    # If no unread threads were found, or if no containers were on screen, this list will be empty.
+    if not unread_thread_usernames:
+        print("No unread DM threads found among the visible items after checking all.")
+    else:
+        print(f"Finished checking. Found {len(unread_thread_usernames)} unread thread(s): {unread_thread_usernames}")
+
+    return unread_thread_usernames
