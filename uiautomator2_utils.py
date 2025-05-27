@@ -89,22 +89,52 @@ def ensure_instagram_open(d, package_name="com.instagram.android"):
     if current_app['package'] != package_name:
         print(f"Instagram not in foreground. Current app: {current_app['package']}. Starting Instagram...")
         d.app_start(package_name, use_monkey=True)
-        time.sleep(5)
+        time.sleep(3)
 
 
 def go_to_home(d):
-    # Check if currently on DM list screen, if so, go back to access main tabs
-    if d(resourceId=DM_LIST_HEADER_TEXT_RESID).exists or \
-            d(description=DM_LIST_NEW_CHAT_BUTTON_DESC).exists:
-        print("Currently on DM list, pressing back to reach main tabs before going home.")
-        d.press("back")
-        time.sleep(1.5)  # Allow UI to transition
+    # Ensure Instagram app is in the foreground.
+    ensure_instagram_open(d)  # This helper makes sure Insta is the current app.
 
-    ensure_instagram_open(d)
+    # Try to navigate back multiple times to ensure we reach a state where the home tab is visible.
+    # This is important if the bot is deep in a menu, a chat, a profile page, or any other UI state.
+    # The goal is to return to a "base" screen where the main navigation tabs (like Home) are present.
+    max_back_presses = 6  # Maximum number of times to press "back". Adjust if needed.
+    home_tab_visible = False
+    print(f"Attempting to navigate to Home. Max back presses: {max_back_presses}.")
+
+    for i in range(max_back_presses):
+        # Check if the home tab is already visible.
+        # HOME_TAB_RESID is the resource ID for the home button/tab (e.g., "com.instagram.android:id/feed_tab").
+        # Using .exists is a quick check without waiting for too long.
+        if d(resourceId=HOME_TAB_RESID).exists:
+            home_tab_visible = True
+            print(f"Home tab found after {i} back press(es).")
+            break  # Exit loop, home tab is visible.
+
+        # If not visible, press the physical "back" button on the device.
+        print(f"Home tab not visible yet, pressing back (attempt {i + 1}/{max_back_presses}).")
+        d.press("back")
+        # Wait for the UI to settle after the back press.
+        # A short delay is crucial for the UI to update and for subsequent .exists checks to be accurate.
+        time.sleep(2)  # Adjusted sleep time for UI transition.
+
+    if not home_tab_visible:
+        print(f"WARN: Home tab ({HOME_TAB_RESID}) was not found after {max_back_presses} back presses. "
+              f"The UI might be in an unexpected state. Attempting to click the home tab anyway.")
+
+    # Now, unconditionally attempt to click the home button.
+    # Even if it wasn't found in the loop, it might have appeared after the last back press,
+    # or we want to log the failure from safe_click if it's truly not there.
     home_button = d(resourceId=HOME_TAB_RESID)
-    if not safe_click(home_button):
-        print(f"WARN: Could not navigate to Home using ID '{HOME_TAB_RESID}'.")
-    time.sleep(2)
+    if not safe_click(home_button):  # safe_click includes a wait and then clicks.
+        print(f"ERROR: Failed to click the Home tab (ID: '{HOME_TAB_RESID}'). "
+              f"The bot may not be on the home screen, which can affect subsequent actions.")
+    else:
+        print("Successfully clicked the Home tab.")
+
+    # Wait for the home screen to potentially load content or fully transition.
+    time.sleep(1)
 
 
 def go_to_dm_list(d):
@@ -123,7 +153,7 @@ def go_to_dm_list(d):
         print(f"ERROR: DM icon '{DM_INBOX_ICON_RESID}' not found on home screen.")
         return False
     print("Navigated to DM list.")
-    time.sleep(3)
+    time.sleep(2)
     if d(resourceId=DM_LIST_HEADER_TEXT_RESID).wait(timeout=5):
         return True
     print("WARN: DM list header not found after clicking DM icon.")
@@ -263,7 +293,7 @@ def send_dm_in_open_thread(d, message_text):
         print(f"ERROR: DM send button '{DM_CHAT_SEND_BUTTON_RESID}' not found/clickable.")
         return False
     print(f"DM sent (hopefully): '{message_text[:30]}...'")
-    time.sleep(2)
+    time.sleep(1)
     return True
 
 
@@ -284,7 +314,7 @@ def go_to_user_profile(d, target_username):
     d.clear_text()
     d.send_keys(target_username)
     print(f"Typed '{target_username}' into general search. Waiting for results...")
-    time.sleep(4)  # Wait for search results to load
+    time.sleep(1)  # Wait for search results to load
 
     # Optionally, click on "Accounts" tab if it's not default
     accounts_tab = d(text=GENERAL_SEARCH_USER_TAB_TEXT)
@@ -432,7 +462,7 @@ def send_dm_from_profile(d, target_username, message_text):
     # Verify header
     header_el_verify = d(resourceId=DM_CHAT_HEADER_USERNAME_TEXT_RESID)
     opened_correct_chat = False
-    if header_el_verify.wait(timeout=7):  # Increased timeout
+    if header_el_verify.wait(timeout=2):  # Increased timeout
         header_identifier_verify = _get_element_identifier(header_el_verify.info)
     if header_identifier_verify and target_username.lower() in header_identifier_verify.lower():
         opened_correct_chat = True
@@ -470,24 +500,43 @@ def search_and_open_dm_with_user(d, target_username,
         print(f"ERROR: New chat button (desc: '{DM_LIST_NEW_CHAT_BUTTON_DESC}') not found in DM list.")
         return False
     print("Clicked 'New message' button. Waiting for New Chat screen...")
-    time.sleep(2.5)  # Allow time for the new chat screen to load
+    time.sleep(1.5)  # Allow time for the new chat screen to load
 
-    # Step 2: Click and type the username in (com.instagram.android:id/search_edit_text)(resource id)
-    # NEW_CHAT_TO_FIELD_INPUT_RESID is "com.instagram.android:id/search_edit_text"
-    search_field_new_chat = d(resourceId=NEW_CHAT_TO_FIELD_INPUT_RESID)
-    if not safe_click(search_field_new_chat):  # Click to focus
-        print(f"ERROR: 'To:' field ('{NEW_CHAT_TO_FIELD_INPUT_RESID}') not found or not clickable in new chat screen.")
-        # If clicking fails, sometimes the field is already focused or needs a different interaction
-        # As a fallback, try sending keys directly if element exists
-        if not search_field_new_chat.exists:
-            d.press("back")  # Go back if field truly not found
+    # Step 2: Get the selector for the "To:" or "Search" input field on the new chat screen.
+    # NEW_CHAT_TO_FIELD_INPUT_RESID is the resource ID, e.g., "com.instagram.android:id/search_edit_text".
+    search_input_selector = d(resourceId=NEW_CHAT_TO_FIELD_INPUT_RESID)
+
+    # Try to click the search field to ensure it's focused before typing.
+    # safe_click is a helper that waits for the element and then clicks.
+    if not safe_click(search_input_selector):
+        # If the click fails, it doesn't necessarily mean the element isn't usable.
+        # It might be already focused, or there might be a temporary overlay that safe_click couldn't handle.
+        print(f"WARN: safe_click failed for search input field '{NEW_CHAT_TO_FIELD_INPUT_RESID}'. "
+              f"Checking if the element exists to attempt setting text anyway.")
+
+        # Check if the element actually exists on the screen.
+        if not search_input_selector.exists:
+            # If the element genuinely doesn't exist, we can't proceed.
+            print(f"ERROR: Search input field '{NEW_CHAT_TO_FIELD_INPUT_RESID}' not found on screen. "
+                  f"Cannot type username.")
+            d.press("back")  # Attempt to go back from the new chat screen to a known state.
             return False
-        print(f"WARN: Could not click '{NEW_CHAT_TO_FIELD_INPUT_RESID}', attempting to send keys directly.")
 
-    d.clear_text()  # Clear any pre-existing text
-    d.send_keys(target_username)
-    print(f"Typed '{target_username}' into New Chat search. Waiting for results...")
-    time.sleep(3.5)  # Allow time for search results to populate
+        # If the element exists even though click failed, we can still try to set its text.
+        print(f"WARN: Field '{NEW_CHAT_TO_FIELD_INPUT_RESID}' exists despite click issues. Attempting to set text.")
+
+    # At this point, we believe the search input field is on the screen.
+    # We will use element.set_text(target_username) to input the username.
+    # This method is called directly on the UiObject (the search_input_selector).
+    # element.set_text() usually overwrites any existing text in the field.
+    # It's generally more robust than d.send_keys() for text input, especially if
+    # Android Input Method Editor (IME) or virtual keyboard issues occur.
+    print(f"Attempting to set text '{target_username}' into field '{NEW_CHAT_TO_FIELD_INPUT_RESID}'...")
+    search_input_selector.set_text(target_username)
+
+    # After setting the text, print a confirmation and wait for search results to load.
+    print(f"Set text '{target_username}' into New Chat search. Waiting for results...")
+    time.sleep(1.5)  # Allow time for search results to populate (e.g., user list).
 
     # Step 3: Click the user whose resource id com.instagram.android:id/row_user_secondary_name matches the username
     # NEW_CHAT_USER_RESULT_USERNAME_TEXT_RESID is "com.instagram.android:id/row_user_secondary_name"
@@ -527,7 +576,7 @@ def search_and_open_dm_with_user(d, target_username,
         return False
 
     print(f"Clicked on {target_username}. Expecting to be on chat screen...")
-    time.sleep(3.5)  # Wait for the chat screen to fully load after selection
+    time.sleep(1.5)  # Wait for the chat screen to fully load after selection
 
     # Step 4 & 5 are handled by verifying we are on the chat screen and then the main bot loop will use send_dm_in_open_thread
     # Verify we are on the chat screen with the correct user
@@ -698,7 +747,7 @@ def check_for_instagram_dm_notification(d, package_name="com.instagram.android")
                 tv = text_views[tv_idx]
                 tv_info = tv.info
                 notification_text_combined += " " + (
-                            tv_info.get('text', '') + " " + tv_info.get('contentDescription', '')).lower()
+                        tv_info.get('text', '') + " " + tv_info.get('contentDescription', '')).lower()
 
             is_dm = any(keyword in notification_text_combined for keyword in dm_keywords)
 
@@ -842,8 +891,8 @@ def check_for_unread_dm_threads(d_device):
 
                 # If the username element exists...
                 if username_element.exists:
-                    username = username_element.info.get('text') # Get the actual text content
-                    if username: # Ensure the username is not empty or None
+                    username = username_element.info.get('text')  # Get the actual text content
+                    if username:  # Ensure the username is not empty or None
                         print(f"Found unread thread with username: {username}")
                         unread_thread_usernames.append(username)
                     else:

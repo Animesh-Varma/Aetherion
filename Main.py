@@ -15,8 +15,8 @@ import uiautomator2_utils as u2_utils  # Our new helper
 # --- uiautomator2 Device Connection ---
 # USER: Configure your device connection here
 # d = u2.connect() # Default: first USB device or emulator
-d_device_identifier = "192.168.29.251:33377"
-# d = u2.connect_usb("YOUR_DEVICE_SERIAL")
+d_device_identifier = "192.168.29.207:5555"
+# d = u2.connect_usb("")
 # For this script, we assume 'd' is initialized globally after successful connection.
 d_device = None  # Will be initialized in __main__
 
@@ -567,6 +567,7 @@ if __name__ == "__main__":
     if not login_ui():
         print("FATAL: login_ui failed. Exiting.")
         exit(1)
+
 
     print_bot_user_info_ui()  # Print some info about the bot account
 
