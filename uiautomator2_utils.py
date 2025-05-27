@@ -33,9 +33,6 @@ DM_CHAT_HEADER_USERNAME_TEXT_RESID = "com.instagram.android:id/header_title"  # 
 DM_CHAT_MESSAGE_BUBBLE_CONTAINER_RESID = "com.instagram.android:id/direct_text_message_text_parent"
 DM_CHAT_MESSAGE_TEXT_VIEW_RESID = "com.instagram.android:id/direct_text_message_text_view"
 DM_CHAT_MESSAGE_SENDER_NAME_TEXT_RESID = "com.instagram.android:id/username"  # For groups
-# Chosen primary candidate for message timestamp after evaluating alternatives.
-# Fallback logic will be used if this ID fails.
-DM_CHAT_MESSAGE_TIMESTAMP_TEXT_RESID = "com.instagram.android:id/message_time"
 
 DM_CHAT_INPUT_FIELD_RESID = "com.instagram.android:id/row_thread_composer_edittext"
 DM_CHAT_SEND_BUTTON_RESID = "com.instagram.android:id/row_thread_composer_send_button_container"
@@ -170,156 +167,6 @@ def _get_element_identifier(ui_object_info):
     return ui_object_info.get('contentDescription') or ui_object_info.get('text')
 
 
-def _parse_message_timestamp(timestamp_str: str, reference_date: datetime) -> datetime:
-    """
-    Parses various Instagram timestamp string formats into datetime objects.
-    This is a simplified parser and might need significant enhancements.
-
-    Args:
-        timestamp_str: The string from the UI (e.g., "10:23 AM", "Yesterday", "Mon", "Dec 15").
-        reference_date: The date to use as 'today' for relative timestamps.
-
-    Returns:
-        A datetime object, or reference_date if parsing fails (as a fallback).
-    """
-    if not timestamp_str:
-        return reference_date  # Fallback to now
-
-    timestamp_str_lower = timestamp_str.lower()
-    now = reference_date
-
-    try:
-        # 1. Specific keywords like "now" (though less common for actual messages)
-        if "now" in timestamp_str_lower:  # e.g., "Seen just now" - use current time
-            return now
-
-        # 2. Time only (e.g., "10:23 AM", "17:45") - assume today
-        # Instagram often shows "Active now", "Active 10m ago", etc. These are statuses, not message timestamps.
-        # Actual message timestamps are more like "10:23 AM" or "Yesterday".
-        if ":" in timestamp_str and ("am" in timestamp_str_lower or "pm" in timestamp_str_lower) \
-                and not any(
-            day in timestamp_str_lower for day in ["yesterday", "mon", "tue", "wed", "thu", "fri", "sat", "sun"]):
-            # This is for formats like "10:30 AM"
-            parsed_time = datetime.strptime(timestamp_str.replace(" ", ""), "%I:%M%p")  # "10:30AM"
-            return now.replace(hour=parsed_time.hour, minute=parsed_time.minute, second=0, microsecond=0)
-
-        # 3. "Yesterday"
-        if "yesterday" in timestamp_str_lower:
-            # If it includes a time like "Yesterday, 10:30 PM"
-            if ":" in timestamp_str:
-                try:
-                    # Attempt to parse "Yesterday, HH:MM AM/PM"
-                    # Need to remove "Yesterday, " part first
-                    time_part = timestamp_str_lower.split("yesterday")[-1].strip(', ')
-                    parsed_time = datetime.strptime(time_part.replace(" ", ""), "%I:%M%p")
-                    return (now - timedelta(days=1)).replace(hour=parsed_time.hour, minute=parsed_time.minute, second=0,
-                                                             microsecond=0)
-                except ValueError:  # If parsing time part fails, just use yesterday midnight
-                    pass  # Fall through to simpler "yesterday"
-            return (now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)  # Midnight yesterday
-
-        # 4. Day of the week (e.g., "Mon", "Tue 11:00 AM")
-        days_of_week = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
-        for day_name, day_num in days_of_week.items():
-            if day_name in timestamp_str_lower:
-                days_ago = (now.weekday() - day_num + 7) % 7
-                if days_ago == 0 and not (
-                        ":" in timestamp_str):  # If it's "Mon" and today is Monday, assume last week's Mon unless time specified
-                    # If time is specified (e.g. "Mon 10:00 AM"), assume it's today if today is Mon.
-                    # If no time, and it's today's day name, assume a week ago.
-                    days_ago = 7  # Default to a week ago if it's just the day name and it matches today.
-
-                # If it includes time, e.g., "Mon 11:23 AM"
-                parsed_dt = (now - timedelta(days=days_ago))
-                if ":" in timestamp_str:
-                    try:
-                        time_part = timestamp_str_lower.split(day_name)[-1].strip()
-                        if time_part:  # Ensure there is a time part
-                            parsed_time = datetime.strptime(time_part.replace(" ", ""), "%I:%M%p")
-                            parsed_dt = parsed_dt.replace(hour=parsed_time.hour, minute=parsed_time.minute, second=0,
-                                                          microsecond=0)
-                        else:  # Just day name, e.g. "Mon"
-                            parsed_dt = parsed_dt.replace(hour=0, minute=0, second=0, microsecond=0)  # Midnight
-                        return parsed_dt
-                    except ValueError:  # Parsing time part failed
-                        # Fallback to midnight of that day
-                        return parsed_dt.replace(hour=0, minute=0, second=0, microsecond=0)
-                else:  # Just the day name "Mon"
-                    return parsed_dt.replace(hour=0, minute=0, second=0, microsecond=0)  # Midnight of that day
-
-        # 5. Date format (e.g., "Dec 15", "15 Dec", "Dec 15, 2023")
-        # This needs to handle year or assume current year.
-        # Example: "Dec 15" or "15 Dec"
-        # Python's strptime can be tricky with day/month order and optional year.
-        # Let's try a few common formats.
-        date_formats_to_try = [
-            "%b %d",  # "Dec 15"
-            "%d %b",  # "15 Dec"
-            "%b %d, %Y",  # "Dec 15, 2023"
-            "%d %b, %Y",  # "15 Dec, 2023"
-        ]
-        for fmt in date_formats_to_try:
-            try:
-                parsed_dt = datetime.strptime(timestamp_str, fmt)
-                if parsed_dt.year == 1900:  # strptime defaults to 1900 if year not given
-                    parsed_dt = parsed_dt.replace(year=now.year)
-                # If the parsed date is in the future (e.g. "Dec 15" parsed in Jan, assumes current year),
-                # it's likely from the previous year.
-                if parsed_dt > now and fmt in ["%b %d", "%d %b"]:
-                    parsed_dt = parsed_dt.replace(year=now.year - 1)
-
-                # Check if there's also a time part, e.g., "Dec 15, 10:30 AM"
-                if ":" in timestamp_str and ("am" in timestamp_str_lower or "pm" in timestamp_str_lower):
-                    # This is more complex; the simple strptime above might fail if time is included directly.
-                    # Example: "Dec 15, 10:54 AM"
-                    # We might need to split date and time if combined.
-                    # For now, if strptime succeeded with date only, we'll take it (midnight).
-                    # A more robust parser would handle "Date, Time" formats.
-                    # Let's try to re-parse with a combined format if it looks like it has time.
-                    try:
-                        full_fmt = fmt + ", %I:%M%p"  # e.g. "%b %d, %I:%M%p"
-                        # Need to strip year from fmt if it was added by previous logic
-                        if "%Y" in fmt:
-                            full_fmt = fmt.replace(", %Y", "") + ", %I:%M%p"  # temporary fix
-                            parsed_with_time = datetime.strptime(
-                                timestamp_str.split(",")[0] + "," + timestamp_str.split(",")[1], full_fmt)
-                            if parsed_with_time.year == 1900: parsed_with_time = parsed_with_time.replace(year=now.year)
-                            if parsed_with_time > now and fmt in ["%b %d",
-                                                                  "%d %b"]: parsed_with_time = parsed_with_time.replace(
-                                year=now.year - 1)
-                            return parsed_with_time
-                        else:  # No year in original format
-                            parsed_with_time = datetime.strptime(timestamp_str, full_fmt)
-                            if parsed_with_time.year == 1900: parsed_with_time = parsed_with_time.replace(year=now.year)
-                            if parsed_with_time > now: parsed_with_time = parsed_with_time.replace(
-                                year=now.year - 1)  # if future date, assume last year
-                            return parsed_with_time
-                    except ValueError:
-                        # Time parsing failed, stick with date at midnight
-                        pass
-                return parsed_dt.replace(hour=0, minute=0, second=0, microsecond=0)  # Midnight of that date
-            except ValueError:
-                continue  # Try next format
-
-        # 6. Relative times like "1h", "23m" (these are often for "active status" not message timestamps)
-        # For actual messages, IG tends to use "10:30 AM", "Yesterday", "Mon", "Dec 15".
-        # If these appear for messages, this parser would need extension.
-        # E.g., "1 h", "23 m"
-        if "h" == timestamp_str_lower[-1] and timestamp_str_lower[:-1].strip().isdigit():
-            hours_ago = int(timestamp_str_lower[:-1].strip())
-            return now - timedelta(hours=hours_ago)
-        if "m" == timestamp_str_lower[-1] and timestamp_str_lower[:-1].strip().isdigit():
-            minutes_ago = int(timestamp_str_lower[:-1].strip())
-            return now - timedelta(minutes=minutes_ago)
-
-    except Exception as e:
-        print(f"WARN: Could not parse timestamp string '{timestamp_str}': {e}. Defaulting to reference_date.")
-        return reference_date  # Fallback
-
-    print(f"WARN: Unhandled timestamp format: '{timestamp_str}'. Defaulting to reference_date.")
-    return reference_date  # Fallback for unhandled formats
-
-
 def open_thread_by_username(d, target_username_in_list, max_scrolls=3):
     print(f"Searching for thread with '{target_username_in_list}' in DM list...")
     for i in range(max_scrolls + 1):
@@ -388,22 +235,18 @@ def get_threads_from_dm_list(d, bot_username, max_threads_to_fetch=10, max_scrol
     return threads_data
 
 
-def get_messages_from_open_thread(d, bot_username, last_processed_timestamp=None, max_messages=20, max_scrolls_up=3):
-    print(f"Fetching messages from open thread. Stop if older than: {last_processed_timestamp}")
+def get_messages_from_open_thread(d, bot_username, max_messages=20, max_scrolls_up=3):
+    print("Fetching messages from open thread...")
     messages = []
     processed_msg_hashes = set()
-    stop_fetching = False  # Flag to break outer scroll loop
+    # stop_fetching flag is removed as last_processed_timestamp is removed.
     peer_username_el = d(resourceId=DM_CHAT_HEADER_USERNAME_TEXT_RESID)
     peer_username = "UnknownPeer"
     if peer_username_el.exists:
         peer_username_info = peer_username_el.info
         peer_username = _get_element_identifier(peer_username_info) or 'UnknownPeer'
 
-    # Reference date for parsing relative timestamps consistently across a screen
-    # This might need adjustment if messages span multiple days on a single screen,
-    # but for "HH:MM AM/PM" type times, it assumes they are for the "current" day of fetching.
-    # A more sophisticated approach might try to infer date changes while scrolling.
-    current_fetch_time = datetime.now()
+    # current_fetch_time is removed as we'll use datetime.now() directly for each message.
 
     for i in range(max_scrolls_up + 1):
         message_bubbles = d(resourceId=DM_CHAT_MESSAGE_BUBBLE_CONTAINER_RESID)
@@ -433,76 +276,9 @@ def get_messages_from_open_thread(d, bot_username, last_processed_timestamp=None
                     continue
                 processed_msg_hashes.add(msg_hash)
 
-                # --- Timestamp Parsing ---
-                timestamp_str = None
-                parsed_timestamp = current_fetch_time  # Default if all attempts fail
-
-                # 1. Attempt with the chosen specific Resource ID
-                if DM_CHAT_MESSAGE_TIMESTAMP_TEXT_RESID:  # If an ID is set
-                    timestamp_el_specific = bubble.child(resourceId=DM_CHAT_MESSAGE_TIMESTAMP_TEXT_RESID)
-                    if timestamp_el_specific.exists:
-                        timestamp_str = timestamp_el_specific.info.get('text')
-                        if timestamp_str:
-                            print(
-                                f"DEBUG: Found timestamp text '{timestamp_str}' using specific ID {DM_CHAT_MESSAGE_TIMESTAMP_TEXT_RESID}")
-                            parsed_timestamp = _parse_message_timestamp(timestamp_str, current_fetch_time)
-                        else:
-                            print(
-                                f"WARN: Timestamp element with ID {DM_CHAT_MESSAGE_TIMESTAMP_TEXT_RESID} found but text is empty. Bubble: {bubble.info['bounds']}")
-
-                # 2. Fallback: Iterate through all TextViews within the bubble if specific ID failed or no text
-                if not timestamp_str:  # If specific ID didn't yield a usable timestamp string
-                    print(
-                        f"INFO: Specific ID {DM_CHAT_MESSAGE_TIMESTAMP_TEXT_RESID if DM_CHAT_MESSAGE_TIMESTAMP_TEXT_RESID else 'N/A'} failed or no text. Trying fallback TextView search for bubble: {bubble.info['bounds']}")
-                    possible_ts_elements = bubble.child(className="android.widget.TextView")
-                    if not possible_ts_elements.exists:
-                        # Sometimes the bubble itself IS the TextView if it's a simple text-only message.
-                        # More often, the message text view is a child.
-                        # If the bubble has no TextView children, it's unlikely to find a timestamp this way.
-                        print(
-                            f"DEBUG: No child TextViews found in bubble for fallback search. Bubble: {bubble.info['bounds']}")
-
-                    found_in_fallback = False
-                    for idx in range(possible_ts_elements.count):
-                        potential_ts_el = possible_ts_elements[idx]
-                        # Avoid re-processing the main message text view if it's different from the timestamp view
-                        if potential_ts_el.info.get('resourceName') == DM_CHAT_MESSAGE_TEXT_VIEW_RESID:
-                            continue  # Skip the main message text itself
-
-                        potential_ts_text = potential_ts_el.info.get('text')
-                        if potential_ts_text and potential_ts_text != text:  # Ensure it's not the message body
-                            # Heuristic check: Does it look like a timestamp?
-                            # _parse_message_timestamp is robust, so we can be a bit lenient here.
-                            # Let's check for common characters or keywords.
-                            if any(char in potential_ts_text for char in [":", "AM", "PM"]) or \
-                                    any(keyword in potential_ts_text.lower() for keyword in
-                                        ["yesterday", "mon", "tue", "wed", "thu", "fri", "sat", "sun", "jan", "feb",
-                                         "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]):
-                                print(
-                                    f"DEBUG: Fallback found potential timestamp text '{potential_ts_text}' in bubble child TextView. RID: {potential_ts_el.info.get('resourceName')}")
-                                # Try parsing this potential text
-                                temp_parsed_ts = _parse_message_timestamp(potential_ts_text, current_fetch_time)
-                                # If parsing changes it from current_fetch_time, it's likely a valid parse
-                                # And ensure it's not just re-parsing the main message text successfully
-                                if temp_parsed_ts != current_fetch_time:
-                                    timestamp_str = potential_ts_text
-                                    parsed_timestamp = temp_parsed_ts
-                                    found_in_fallback = True
-                                    print(
-                                        f"INFO: Successfully parsed timestamp '{timestamp_str}' using FALLBACK logic. Parsed as: {parsed_timestamp}")
-                                    break  # Found a plausible timestamp in fallback
-                    if not found_in_fallback and not timestamp_str:  # Still no timestamp_str after specific and fallback
-                        print(
-                            f"WARN: Could not find or parse timestamp for message (text: '{text[:30]}...') using specific ID or fallback. Using current_fetch_time. Bubble: {bubble.info['bounds']}")
-
-                # --- End Timestamp Parsing ---
-
-                # Check against last_processed_timestamp
-                if last_processed_timestamp and parsed_timestamp <= last_processed_timestamp:
-                    print(
-                        f"Message timestamp ({parsed_timestamp}) is older than or same as last processed ({last_processed_timestamp}). Stopping.")
-                    stop_fetching = True
-                    break  # Break from iterating current screen's bubbles
+                # Timestamp logic removed. Defaulting to datetime.now() for each message.
+                # The 'parsed_timestamp' variable is no longer used.
+                # The 'stop_fetching' logic based on 'last_processed_timestamp' is also removed.
 
                 screen_width = d.window_size()[0]
                 # Crude way to check if message is outgoing (sent by bot)
@@ -520,7 +296,7 @@ def get_messages_from_open_thread(d, bot_username, last_processed_timestamp=None
                     "id": msg_hash,  # This hash should ideally be a unique message ID from IG if available
                     "user_id": sender_ui_name,
                     "text": text,
-                    "timestamp": parsed_timestamp  # Use the parsed timestamp
+                    "timestamp": datetime.now()  # Reverted to using current fetch time for each message
                 })
 
         # Add messages from current screen to main list (avoiding duplicates based on hash)
@@ -532,7 +308,8 @@ def get_messages_from_open_thread(d, bot_username, last_processed_timestamp=None
 
         # messages = list({m['id']: m for m in messages}.values()) # More concise way to ensure unique by id
 
-        if stop_fetching or len(messages) >= max_messages or i == max_scrolls_up:
+        # Removed 'stop_fetching' from the condition below
+        if len(messages) >= max_messages or i == max_scrolls_up:
             break  # Break from the scrolling loop (max_scrolls_up loop)
 
         # Scroll up to get older messages (swipe content of chat down)

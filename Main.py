@@ -5,7 +5,7 @@ import signal
 from datetime import datetime, timedelta
 from config import (API_KEY, OWNER_USERNAME, PROMPT_FIRST_TEMPLATE, PROMPT_SECOND_TEMPLATE,
                     BOT_NAME, BOT_DISPLAY_NAME, THREAD_FETCH_AMOUNT, MESSAGE_FETCH_AMOUNT,
-                    # Added BLUE_DOT_CHECK_INTERVAL
+    # Added BLUE_DOT_CHECK_INTERVAL
                     MIN_SLEEP_TIME, MAX_SLEEP_TIME, BLUE_DOT_CHECK_INTERVAL,
                     NOTIFICATION_CHECK_INTERVAL, DM_LIST_CHECK_INTERVAL)  # SESSION_ID removed
 import google.generativeai as genai
@@ -165,11 +165,28 @@ def print_bot_user_info_ui():
     print(f"  Followers: {info.get('follower_count', 'N/A')}")
     u2_utils.go_to_dm_list(d_device)  # Return to DMs
 
+def _perform_back_press(d_device_internal, LLM_HISTORY_LENGTH=10):
+    """
+    Performs two back presses with short sleeps in between to ensure UI stability.
+    Typically used to close keyboard/editor and return to DM list from an open chat.
+    """
+    print("Performing double back press to return to DM list...")
+    # Press back twice: close keyboard/editor if open, then exit chat to DM list
+    time.sleep(0.5)
+    d_device_internal.press("back")
+    time.sleep(0.5)
+    # Allow DM list to settle or for next action
+    # After this, we expect to be on the DM list screen.
+    # Any subsequent open_thread_by_username or search_and_open_dm_with_user will work from there.
+    # We also need to ensure active_thread_identifier is None if we are not in a thread.
+    # This helper doesn't manage active_thread_identifier; the caller should.
 
 def auto_respond_via_ui():
     global d_device, auto_responding, last_checked_timestamps, processed_message_ids, all_threads_history, BOT_ACTUAL_USERNAME
+    LLM_HISTORY_LENGTH = 10  # Number of past messages to include in LLM prompt history
 
     print("Ensuring Instagram is open at the start of the bot cycle...")
+
     u2_utils.ensure_instagram_open(d_device)
     # Assuming ensure_instagram_open will handle critical errors or the script will fail later if it's not open.
     print("Instagram check/start attempt complete.")
@@ -241,49 +258,78 @@ def auto_respond_via_ui():
                         continue  # Move to the next unread thread
                     active_thread_identifier = thread_identifier
 
-                    # Fetch messages from the now-open thread
+                    # Fetch messages from the now-open thread (simplified call)
                     messages_in_thread_ui = u2_utils.get_messages_from_open_thread(d_device, BOT_ACTUAL_USERNAME,
-                                                                                   MESSAGE_FETCH_AMOUNT)
-                    latest_msg_timestamp_this_cycle = last_ts_for_thread
+                                                                                   max_messages=MESSAGE_FETCH_AMOUNT)
+
+                    latest_msg_timestamp_this_cycle = last_ts_for_thread  # Initialize with the timestamp of the previous check
                     new_ui_messages_to_process = []
 
-                    # Process fetched messages to find new ones
+                    # Get IDs of messages already in the current thread's history for efficient lookup
+                    current_thread_history_ids = {h_msg["id"] for h_msg in
+                                                  all_threads_history[thread_identifier]["messages"]}
+
+                    # Process fetched messages to find new ones and update history
                     for msg_ui in messages_in_thread_ui:
-                        # Add to global history if not already there
-                        is_in_history = any(h_msg["id"] == msg_ui["id"] for h_msg in
-                                            all_threads_history[thread_identifier]["messages"])
-                        if not is_in_history:
-                            all_threads_history[thread_identifier]["messages"].append({
-                                "id": msg_ui["id"], "user_id": msg_ui["user_id"], "username": msg_ui["user_id"],
-                                "text": msg_ui["text"],
-                                "timestamp": msg_ui["timestamp"].strftime("%Y-%m-%d %H:%M:%S")
-                            })
+                        # msg_ui["timestamp"] is datetime.now() from the fetcher at the time of scraping that message
+                        # msg_ui["id"] is hash(text+bounds)
 
-                        # Check if the message is new (by timestamp and its direct ID) and not from the bot itself
-                        if msg_ui["timestamp"] > last_ts_for_thread and msg_ui["id"] not in processed_message_ids:
-                            if msg_ui["user_id"].lower() != BOT_ACTUAL_USERNAME.lower():
-                                new_ui_messages_to_process.append(msg_ui)
-
-                        # Update the latest message timestamp encountered in this cycle for this thread
+                        # Update latest_msg_timestamp_this_cycle with the timestamp of the current fetched message
+                        # This effectively tracks the time of this fetch pass if new messages are found or iterated.
                         if msg_ui["timestamp"] > latest_msg_timestamp_this_cycle:
                             latest_msg_timestamp_this_cycle = msg_ui["timestamp"]
 
+                        if msg_ui["id"] not in current_thread_history_ids:
+                            # This message is new to our history for this thread.
+                            # Add to global history first.
+                            history_entry = {
+                                "id": msg_ui["id"],  # hash
+                                "user_id": msg_ui["user_id"],
+                                "username": msg_ui["user_id"],  # In DMs, user_id (sender) is effectively the username
+                                "text": msg_ui["text"],
+                                "timestamp": msg_ui["timestamp"].strftime("%Y-%m-%d %H:%M:%S")
+                                # Store fetch time as string
+                            }
+                            all_threads_history[thread_identifier]["messages"].append(history_entry)
+                            current_thread_history_ids.add(msg_ui[
+                                                               "id"])  # Add to set for this cycle to avoid processing duplicates within same fetch
+
+                            # Now, if it's not from the bot, it's a new message to process.
+                            if msg_ui["user_id"].lower() != BOT_ACTUAL_USERNAME.lower():
+                                new_ui_messages_to_process.append(msg_ui)
+                                # Add to session-wide processed_message_ids to prevent re-processing by LLM if it appears in a slightly different context later
+                                # (e.g. if UI shifts slightly but text is same, hash might differ, but this covers the current hash)
+                                processed_message_ids.add(msg_ui["id"])
+                        elif msg_ui["id"] not in processed_message_ids and msg_ui[
+                            "user_id"].lower() != BOT_ACTUAL_USERNAME.lower():
+                            # This case handles messages that are in all_threads_history (seen in a previous cycle)
+                            # but were NOT processed by the LLM in that previous cycle (e.g., due to error, or if bot was restarted).
+                            # We add them to new_ui_messages_to_process to ensure they get a chance to be processed by the LLM.
+                            # We also add them to processed_message_ids now to mark them as "to be processed in this cycle".
+                            print(
+                                f"DEBUG: Message {msg_ui['id']} from {msg_ui['user_id']} found in history but not in session's processed_message_ids. Adding to process queue.")
+                            new_ui_messages_to_process.append(msg_ui)
+                            processed_message_ids.add(msg_ui["id"])
+
+                    # After processing all messages from UI for this thread
+                    last_checked_timestamps[thread_identifier] = latest_msg_timestamp_this_cycle
+
                     if not new_ui_messages_to_process:
                         print(
-                            f"No new messages to process in unread thread {thread_identifier} since {last_ts_for_thread.strftime('%H:%M')}. Unread indicator might be for older messages or bot's own.")
-                        # Still update timestamp as we've "checked" it due to unread marker
-                        last_checked_timestamps[thread_identifier] = latest_msg_timestamp_this_cycle
+                            f"No new messages to process in unread thread {thread_identifier}. Blue dot might be for bot's own or already processed messages.")
                         active_thread_identifier = None  # Clear active thread as we are done with this one
                         # Return to DM list before processing the next unread thread
                         if not u2_utils.return_to_dm_list_from_thread(d_device):
                             print(
-                                f"WARN: Failed to return to DM list cleanly from thread {thread_identifier}. Attempting full nav.")
+                                f"WARN: Failed to return to DM list cleanly from thread {thread_identifier} (no new messages). Attempting full nav.")
                             u2_utils.go_to_dm_list(d_device)
                         time.sleep(1)  # Small pause before next unread thread
                         continue  # To the next thread_identifier in unread_threads
 
                     # Process new messages found in this thread
                     if new_ui_messages_to_process:
+                        # Sort new_ui_messages_to_process by their timestamp (which is fetch time) to maintain order
+                        new_ui_messages_to_process.sort(key=lambda m: m["timestamp"])
                         # Consolidate message texts
                         consolidated_message_text_ui = "\n".join(
                             [msg["text"] for msg in new_ui_messages_to_process])
@@ -302,10 +348,13 @@ def auto_respond_via_ui():
                         # Check if auto-response is paused for this thread (using last message for keyword check)
                         if not auto_responding.get(thread_identifier, True):
                             if last_message_data["text"] and any(
-                                    k_word in last_message_data["text"].lower() for k_word in ["resume", "start", "unpause"]):
+                                    k_word in last_message_data["text"].lower() for k_word in
+                                    ["resume", "start", "unpause"]):
                                 auto_responding[thread_identifier] = True
-                                u2_utils.send_dm_in_open_thread(d_device,
-                                                                f"{BOT_DISPLAY_NAME}: Auto-response R E S U M E D for {thread_identifier}.")
+                                if u2_utils.send_dm_in_open_thread(d_device,
+                                                                   f"{BOT_DISPLAY_NAME}: Auto-response R E S U M E D for {thread_identifier}."):
+                                    _perform_back_press(d_device)
+                                    active_thread_identifier = None  # We are back in DM list
                                 print(
                                     f"Auto-response resumed for {thread_identifier} based on keyword in last message.")
                                 for msg_data_item in new_ui_messages_to_process:  # Mark all as processed
@@ -331,25 +380,53 @@ def auto_respond_via_ui():
                                 continue  # To the next unread thread
 
                         # Build prompt history for Gemini
-                        prompt_history = []
-                        sorted_thread_msgs = sorted(
-                            all_threads_history[thread_identifier]["messages"], key=lambda x: x["timestamp"])
-                        # Build history from messages *before* the current batch
-                        # Get last 10 messages from history
-                        for hist_msg in sorted_thread_msgs[-10:]:
-                            # Check if this historical message is one of the new messages we are about to process
-                            is_part_of_current_batch = any(
-                                new_msg["id"] == hist_msg["id"] for new_msg in new_ui_messages_to_process)
-                            if not is_part_of_current_batch:
-                                role = "User" if hist_msg["username"].lower(
-                                ) != BOT_ACTUAL_USERNAME.lower() else BOT_DISPLAY_NAME
-                                prompt_history.append(
-                                    f"{role} ({hist_msg['username']}): {hist_msg['text']}")
+                        prompt_history_lines = []
+                        # Messages in all_threads_history are already ordered by fetch time (append order).
+                        # Take the last LLM_HISTORY_LENGTH messages. These include the current new_ui_messages_to_process
+                        # if they are among the most recent, which is correct for building a continuous history.
 
-                        # Add the consolidated new message(s) from the user to the prompt history
-                        current_msg_in_prompt = f"User ({sender_username_ui}): {consolidated_message_text_ui}"
-                        prompt_history.append(current_msg_in_prompt)
-                        history_text_for_llm = "\n".join(prompt_history)
+                        # The 'message_text' for format_message_for_llm will be consolidated_message_text_ui (the newest from user).
+                        # The 'history_text' should be the conversation leading up to these newest messages.
+
+                        # Consider all messages in history for this thread
+                        thread_messages = all_threads_history[thread_identifier]["messages"]
+
+                        # Determine the slice for history. We want messages *before* the current batch.
+                        # `new_ui_messages_to_process` contains the current batch.
+                        # Their text is already consolidated in `consolidated_message_text_ui`.
+                        # So, the history should be messages in `thread_messages` *excluding* those whose IDs are in `new_ui_messages_to_process`.
+                        # However, the prompt asks for the last N messages from all_threads_history.
+                        # The current `consolidated_message_text_ui` IS the latest user message.
+                        # So, `history_text` should be what came *before* `consolidated_message_text_ui`.
+
+                        # Let's take all messages from history, then format the last N,
+                        # ensuring the roles are correct. The `PROMPT_FIRST_TEMPLATE` uses `{history_text}`
+                        # and then has a specific `User's Latest Message: "{message_text}"`
+                        # This means `history_text_for_llm` should NOT include the `consolidated_message_text_ui`.
+
+                        # Get up to LLM_HISTORY_LENGTH messages from the thread history.
+                        # These messages are already sorted by append order (fetch time).
+                        historical_messages_for_prompt = thread_messages[-LLM_HISTORY_LENGTH:]
+
+                        for hist_msg in historical_messages_for_prompt:
+                            # Determine role for display in history string
+                            role_display = BOT_DISPLAY_NAME if hist_msg[
+                                                                   "username"].lower() == BOT_ACTUAL_USERNAME.lower() else "User"
+
+                            # If the historical message is part of the current new batch from the user,
+                            # it should NOT be in `history_text_for_llm` because it IS the `message_text`.
+                            is_current_user_message = any(
+                                new_msg["id"] == hist_msg["id"] for new_msg in new_ui_messages_to_process)
+                            if is_current_user_message and role_display == "User":  # Only skip if it's a user message part of current batch
+                                continue
+
+                            prompt_history_lines.append(f"{role_display} ({hist_msg['username']}): {hist_msg['text']}")
+
+                        history_text_for_llm = "\n".join(prompt_history_lines)
+
+                        # `consolidated_message_text_ui` (from new_ui_messages_to_process) is passed as `message_text`
+                        # to `format_message_for_llm`. This is the current user turn.
+                        # `history_text_for_llm` is the conversation context before this current turn.
 
                         # First pass to Gemini
                         prompt_first = format_message_for_llm(
@@ -423,29 +500,44 @@ def auto_respond_via_ui():
                                                     "details_for_user"] = f"I tried to message {actual_target} but couldn't find or open the chat."
                                             else:
                                                 active_thread_identifier = actual_target  # Switched context
-                                                success_send = u2_utils.send_dm_in_open_thread(
-                                                    d_device, msg_to_send)
+                                                success_send = u2_utils.send_dm_in_open_thread(d_device, msg_to_send)
+                                                if success_send:
+                                                    _perform_back_press(d_device)
+                                                    active_thread_identifier = None  # Now in DM list
                                         else:  # Target is the currently open thread
-                                            success_send = u2_utils.send_dm_in_open_thread(
-                                                d_device, msg_to_send)
+                                            success_send = u2_utils.send_dm_in_open_thread(d_device, msg_to_send)
+                                            if success_send:
+                                                _perform_back_press(d_device)
+                                                active_thread_identifier = None  # Now in DM list
 
                                         if success_send:
                                             llm_args_for_second_prompt[
                                                 "details_for_user"] = f"I've sent your requested message to {actual_target}."
-                                        # If sending failed even if chat was opened (or was already open)
-                                        else:
+                                        else:  # If sending failed
                                             llm_args_for_second_prompt[
                                                 "details_for_user"] = f"I tried to send a message to {actual_target}, but it failed."
+                                            # If we failed to send, and we were in a switched context, we might still be in that target's chat.
+                                            # Or if it failed in the original chat, we are still there.
+                                            # No back press if send failed. The error message is set.
 
-                                        # IMPORTANT: If we switched context, switch back to original thread to continue processing its messages
-                                        if active_thread_identifier.lower() != thread_identifier.lower():
-                                            if u2_utils.open_thread_by_username(d_device, thread_identifier):
-                                                active_thread_identifier = thread_identifier  # Switched back
+                                        # IMPORTANT: If we switched context (active_thread_identifier was set to actual_target and it was different from thread_identifier)
+                                        # AND the message was sent (which means we did back_press and active_thread_identifier is None)
+                                        # we now need to switch back to the original thread to continue processing its messages.
+                                        # The original thread_identifier is the one we were iterating over.
+                                        original_target_for_loop = thread_identifier  # Clarify variable name
+
+                                        if target_user and target_user.lower() != original_target_for_loop.lower():  # If context was switched
+                                            print(
+                                                f"LLM send_message: Context was switched to '{actual_target}'. Attempting to switch back to original thread '{original_target_for_loop}'.")
+                                            # After back_press, active_thread_identifier is None and we are on DM list.
+                                            if u2_utils.open_thread_by_username(d_device, original_target_for_loop):
+                                                active_thread_identifier = original_target_for_loop  # Switched back
+                                                print(
+                                                    f"Successfully switched back to original thread: {active_thread_identifier}")
                                             else:
                                                 print(
-                                                    f"CRITICAL ERROR: Failed to switch back to original thread {thread_identifier} after sending message to {actual_target}. Further processing for this thread might be compromised.")
-                                                critical_context_switch_error = True  # Set flag
-                                                # No need to add to processed_message_ids here, it's done after LLM handling
+                                                    f"CRITICAL ERROR: Failed to switch back to original thread {original_target_for_loop} after sending message to {actual_target}. Further processing for this thread might be compromised.")
+                                                critical_context_switch_error = True
                                                 break  # Break from 'for part in response_first.parts'
                                     else:  # msg_to_send or actual_target was missing
                                         llm_args_for_second_prompt[
@@ -466,29 +558,34 @@ def auto_respond_via_ui():
                                                                     bot_actual_username=BOT_ACTUAL_USERNAME)
                                 print(
                                     f"LLM direct reply for {thread_identifier}: {reply_text[:50]}...")
-                                if active_thread_identifier.lower() == thread_identifier.lower():  # Ensure we are in the correct thread
-                                    u2_utils.send_dm_in_open_thread(
-                                        d_device, reply_text)
-                                else:
-                                    # This case should ideally not happen if context switching for send_message is correct
+                                message_sent_successfully = False
+                                if active_thread_identifier and active_thread_identifier.lower() == thread_identifier.lower():  # Ensure we are in the correct thread
+                                    if u2_utils.send_dm_in_open_thread(d_device, reply_text):
+                                        message_sent_successfully = True
+                                else:  # active_thread_identifier is None or different
                                     print(
-                                        f"ERROR: Attempted direct reply but active thread '{active_thread_identifier}' doesn't match target '{thread_identifier}'. Re-opening target.")
+                                        f"LLM direct reply: Active thread is '{active_thread_identifier}', target is '{thread_identifier}'. Re-opening target.")
                                     if u2_utils.open_thread_by_username(d_device, thread_identifier):
                                         active_thread_identifier = thread_identifier
-                                        u2_utils.send_dm_in_open_thread(
-                                            d_device, reply_text)
+                                        if u2_utils.send_dm_in_open_thread(d_device, reply_text):
+                                            message_sent_successfully = True
                                     else:
                                         print(
                                             f"ERROR: Could not re-open {thread_identifier} to send LLM direct reply. Message lost.")
 
+                                if message_sent_successfully:
+                                    _perform_back_press(d_device)
+                                    active_thread_identifier = None  # Now in DM list
+
                         # If a function was called, send a second prompt to Gemini for user-facing explanation
-                        if function_triggered_this_message and llm_function_name:
+                        if function_triggered_this_message and llm_function_name and not critical_context_switch_error:
                             function_execution_summary = llm_args_for_second_prompt.get("details_for_user",
                                                                                         "I performed an action based on your message.")
                             prompt_second = format_message_for_llm(
                                 PROMPT_SECOND_TEMPLATE,
                                 bot_display_name=BOT_DISPLAY_NAME, bot_actual_username=BOT_ACTUAL_USERNAME,
-                                sender_username=sender_username_ui, message_text=consolidated_message_text_ui,  # Consolidated
+                                sender_username=sender_username_ui, message_text=consolidated_message_text_ui,
+                                # Consolidated
                                 thread_id=thread_identifier, function_name=llm_function_name,
                                 function_message_placeholder=function_execution_summary if llm_function_name == "notify_owner" else "",
                                 send_message_placeholder=function_execution_summary if llm_function_name == "send_message" else "",
@@ -504,22 +601,27 @@ def auto_respond_via_ui():
                                         user_explanation = format_message_for_llm(part_second.text.strip(),
                                                                                   bot_display_name=BOT_DISPLAY_NAME,
                                                                                   bot_actual_username=BOT_ACTUAL_USERNAME)
-                                        if active_thread_identifier.lower() == thread_identifier.lower():  # Ensure correct thread
-                                            u2_utils.send_dm_in_open_thread(
-                                                d_device, user_explanation)
-                                        else:  # Should not happen if context management is correct
+
+                                        message_sent_successfully_explain = False
+                                        if active_thread_identifier and active_thread_identifier.lower() == thread_identifier.lower():  # Ensure correct thread
+                                            if u2_utils.send_dm_in_open_thread(d_device, user_explanation):
+                                                message_sent_successfully_explain = True
+                                        else:  # active_thread_identifier is None or different (e.g. after send_message to other user + back press)
                                             print(
-                                                f"ERROR: Attempted 2nd pass reply but active thread '{active_thread_identifier}' doesn't match target '{thread_identifier}'. Re-opening.")
+                                                f"LLM explanation: Active thread is '{active_thread_identifier}', target is '{thread_identifier}'. Re-opening target for explanation.")
                                             if u2_utils.open_thread_by_username(d_device, thread_identifier):
                                                 active_thread_identifier = thread_identifier
-                                                u2_utils.send_dm_in_open_thread(
-                                                    d_device, user_explanation)
+                                                if u2_utils.send_dm_in_open_thread(d_device, user_explanation):
+                                                    message_sent_successfully_explain = True
                                             else:
                                                 print(
-                                                    f"ERROR: Could not re-open {thread_identifier} for 2nd pass. Explanation lost.")
+                                                    f"ERROR: Could not re-open {thread_identifier} for 2nd pass explanation. Message lost.")
+
+                                        if message_sent_successfully_explain:
+                                            _perform_back_press(d_device)
+                                            active_thread_identifier = None  # Now in DM list
                             except Exception as e:
-                                print(
-                                    f"ERROR: Gemini API (2nd pass) failed for {thread_identifier} with consolidated message: {e}")
+                                print(f"ERROR: Gemini API (2nd pass) failed for {thread_identifier}: {e}")
 
                         # Mark all messages in the processed batch as processed_message_ids
                         for msg_data_item in new_ui_messages_to_process:
