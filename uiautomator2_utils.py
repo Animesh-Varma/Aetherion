@@ -4,6 +4,7 @@
 import uiautomator2 as u2
 import time
 from datetime import datetime, timedelta
+import json
 
 # --- Constants for Instagram UI Automation ---
 # I. Main App Navigation Tabs
@@ -248,20 +249,19 @@ def get_messages_from_open_thread(d, bot_username, max_messages=20, max_scrolls_
 
     # current_fetch_time is removed as we'll use datetime.now() directly for each message.
 
-    for i in range(max_scrolls_up + 1):
-        message_bubbles = d(resourceId=DM_CHAT_MESSAGE_BUBBLE_CONTAINER_RESID)
-        if not message_bubbles.exists:
-            if i == 0: print("No message bubbles found in open thread.")
-            break
+    # The loop for scrolling up to fetch older messages has been removed.
+    # We will now only process messages currently visible on the screen.
 
+    message_bubbles = d(resourceId=DM_CHAT_MESSAGE_BUBBLE_CONTAINER_RESID)
+    if not message_bubbles.exists:
+        print("No message bubbles found in open thread.")
+    else:
         current_screen_messages = []
         # Iterate from bottom to top of screen (visually) for messages,
         # as Instagram usually shows newest at bottom.
         # uiautomator2 lists elements from top to bottom as they appear in XML.
         # So, we might process older messages first on screen if not reversed.
         # However, the sorting at the end should fix order.
-        # For timestamp comparison, processing in any order on screen is fine,
-        # as we break once *any* message is too old.
 
         for bubble_idx in range(message_bubbles.count):
             bubble = message_bubbles[bubble_idx]
@@ -269,16 +269,12 @@ def get_messages_from_open_thread(d, bot_username, max_messages=20, max_scrolls_
 
             if text_el.exists:
                 text = text_el.info['text']
-                # Using text + bubble bounds for a simple hash. Consider more robust ID if possible.
-                msg_hash = hash(text + str(bubble.info['bounds']))
+                # Using text + JSON dump of sorted bounds for a canonical hash.
+                msg_hash = hash(text + json.dumps(bubble.info['bounds'], sort_keys=True))
 
                 if msg_hash in processed_msg_hashes:
                     continue
                 processed_msg_hashes.add(msg_hash)
-
-                # Timestamp logic removed. Defaulting to datetime.now() for each message.
-                # The 'parsed_timestamp' variable is no longer used.
-                # The 'stop_fetching' logic based on 'last_processed_timestamp' is also removed.
 
                 screen_width = d.window_size()[0]
                 # Crude way to check if message is outgoing (sent by bot)
@@ -300,22 +296,14 @@ def get_messages_from_open_thread(d, bot_username, max_messages=20, max_scrolls_
                 })
 
         # Add messages from current screen to main list (avoiding duplicates based on hash)
-        # This logic might be slightly redundant if hashes are good, but ensures no full duplicates.
         existing_ids = {m['id'] for m in messages}
         for msg in current_screen_messages:
             if msg['id'] not in existing_ids:
                 messages.append(msg)
 
-        # messages = list({m['id']: m for m in messages}.values()) # More concise way to ensure unique by id
-
-        # Removed 'stop_fetching' from the condition below
-        if len(messages) >= max_messages or i == max_scrolls_up:
-            break  # Break from the scrolling loop (max_scrolls_up loop)
-
-        # Scroll up to get older messages (swipe content of chat down)
-        print(f"Scrolling down to fetch older messages (Loop {i + 1}/{max_scrolls_up})")
-        d.swipe_ext("down", scale=0.6, duration=0.5)  # Swipe from near top downwards to load older
-        time.sleep(1.5)  # Wait for new messages to load
+        # Limit messages to max_messages if necessary
+        if len(messages) > max_messages:
+            messages = messages[:max_messages]
 
     if not messages:
         print("No messages were fetched from the open thread.")

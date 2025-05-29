@@ -4,7 +4,7 @@ import random
 import signal
 from datetime import datetime, timedelta
 from config import (API_KEY, OWNER_USERNAME, PROMPT_FIRST_TEMPLATE, PROMPT_SECOND_TEMPLATE,
-                    BOT_NAME, BOT_DISPLAY_NAME, THREAD_FETCH_AMOUNT, MESSAGE_FETCH_AMOUNT,
+                    bot_instagram_username, BOT_DISPLAY_NAME, THREAD_FETCH_AMOUNT, MESSAGE_FETCH_AMOUNT,
     # Added BLUE_DOT_CHECK_INTERVAL
                     MIN_SLEEP_TIME, MAX_SLEEP_TIME, BLUE_DOT_CHECK_INTERVAL,
                     NOTIFICATION_CHECK_INTERVAL, DM_LIST_CHECK_INTERVAL)  # SESSION_ID removed
@@ -22,7 +22,7 @@ d_device_identifier = "192.168.29.207:5555"
 d_device = None  # Will be initialized in __main__
 
 # --- Global Variables ---
-BOT_ACTUAL_USERNAME = BOT_NAME  # Initial assumption, verified in login_ui
+BOT_ACTUAL_USERNAME = bot_instagram_username  # Initial assumption, verified in login_ui
 # Key: thread_identifier (peer_username/group_name), Value: bool
 auto_responding = {}
 genai.configure(api_key=API_KEY)
@@ -37,7 +37,7 @@ processed_message_ids = set()
 # Parameters like "thread_id" will now refer to a UI-based thread identifier (e.g., peer username)
 # (Function declarations like notify_owner_func, pause_response_func etc. are largely the same as your original,
 #  ensure their descriptions make sense in a UI context if needed. For brevity, not repeating them all here.
-#  Make sure `OWNER_USERNAME` and `BOT_NAME` are used from config where appropriate.)
+#  Make sure `OWNER_USERNAME` and `bot_instagram_username` are used from config where appropriate.)
 
 notify_owner_func = FunctionDeclaration(
     name="notify_owner",
@@ -133,16 +133,16 @@ def login_ui():
 
     # Get bot's actual username from its profile page if possible
     profile_info = u2_utils.get_bot_profile_info(
-        d_device, BOT_NAME)  # BOT_NAME from config is initial guess
+        d_device, bot_instagram_username)  # bot_instagram_username from config is initial guess
     if profile_info.get("username"):
         BOT_ACTUAL_USERNAME = profile_info["username"]
-        if BOT_ACTUAL_USERNAME.lower() != BOT_NAME.lower():
+        if BOT_ACTUAL_USERNAME.lower() != bot_instagram_username.lower():
             print(
-                f"WARNING: Actual bot username '{BOT_ACTUAL_USERNAME}' differs from BOT_NAME config '{BOT_NAME}'. Using actual.")
+                f"WARNING: Actual bot username '{BOT_ACTUAL_USERNAME}' differs from bot_instagram_username config '{bot_instagram_username}'. Using actual.")
     else:
         print(
-            f"WARNING: Could not verify bot username from profile. Using BOT_NAME from config: '{BOT_NAME}'. Ensure this is correct.")
-        BOT_ACTUAL_USERNAME = BOT_NAME
+            f"WARNING: Could not verify bot username from profile. Using bot_instagram_username from config: '{bot_instagram_username}'. Ensure this is correct.")
+        BOT_ACTUAL_USERNAME = bot_instagram_username
 
     if not OWNER_USERNAME:
         print("CRITICAL ERROR: OWNER_USERNAME is not configured in config.py. Bot cannot function correctly.")
@@ -165,6 +165,7 @@ def print_bot_user_info_ui():
     print(f"  Followers: {info.get('follower_count', 'N/A')}")
     u2_utils.go_to_dm_list(d_device)  # Return to DMs
 
+
 def _perform_back_press(d_device_internal, LLM_HISTORY_LENGTH=10):
     """
     Performs two back presses with short sleeps in between to ensure UI stability.
@@ -180,6 +181,7 @@ def _perform_back_press(d_device_internal, LLM_HISTORY_LENGTH=10):
     # Any subsequent open_thread_by_username or search_and_open_dm_with_user will work from there.
     # We also need to ensure active_thread_identifier is None if we are not in a thread.
     # This helper doesn't manage active_thread_identifier; the caller should.
+
 
 def auto_respond_via_ui():
     global d_device, auto_responding, last_checked_timestamps, processed_message_ids, all_threads_history, BOT_ACTUAL_USERNAME
@@ -330,24 +332,26 @@ def auto_respond_via_ui():
                     if new_ui_messages_to_process:
                         # Sort new_ui_messages_to_process by their timestamp (which is fetch time) to maintain order
                         new_ui_messages_to_process.sort(key=lambda m: m["timestamp"])
-                        # Consolidate message texts
-                        consolidated_message_text_ui = "\n".join(
-                            [msg["text"] for msg in new_ui_messages_to_process])
 
-                        # Get context from the last message in the batch
+                        # New logic: Isolate the actual latest user message text
+                        actual_latest_user_message_text = new_ui_messages_to_process[-1]['text']
+                        latest_message_id = new_ui_messages_to_process[-1]['id']
+
+                        # Get context from the last message in the batch (for sender info, timestamp)
                         last_message_data = new_ui_messages_to_process[-1]
                         sender_username_ui = last_message_data["user_id"]
                         timestamp_approx_str = last_message_data["timestamp"].strftime(
                             "%Y-%m-%d %H:%M:%S")
-                        sender_full_name_ui = "Unknown (UI)"
+                        sender_full_name_ui = "Unknown (UI)"  # Placeholder, can be improved if profile scraping is integrated here
                         sender_follower_count_ui = 0  # Placeholder
 
                         print(
-                            f"Processing batch of {len(new_ui_messages_to_process)} new UI DMs in {thread_identifier} from {sender_username_ui}. Consolidated text: {consolidated_message_text_ui[:100]}...")
+                            f"Processing batch of {len(new_ui_messages_to_process)} new UI DMs in {thread_identifier} from {sender_username_ui}. Latest message: {actual_latest_user_message_text[:100]}...")
 
                         # Check if auto-response is paused for this thread (using last message for keyword check)
                         if not auto_responding.get(thread_identifier, True):
                             if last_message_data["text"] and any(
+                                    # `last_message_data` is correct here, refers to the very last message
                                     k_word in last_message_data["text"].lower() for k_word in
                                     ["resume", "start", "unpause"]):
                                 auto_responding[thread_identifier] = True
@@ -381,54 +385,29 @@ def auto_respond_via_ui():
 
                         # Build prompt history for Gemini
                         prompt_history_lines = []
-                        # Messages in all_threads_history are already ordered by fetch time (append order).
-                        # Take the last LLM_HISTORY_LENGTH messages. These include the current new_ui_messages_to_process
-                        # if they are among the most recent, which is correct for building a continuous history.
 
-                        # The 'message_text' for format_message_for_llm will be consolidated_message_text_ui (the newest from user).
-                        # The 'history_text' should be the conversation leading up to these newest messages.
+                        # Use all messages currently in this thread's history
+                        # all_threads_history already includes the messages from new_ui_messages_to_process
+                        current_full_thread_history = all_threads_history[thread_identifier]["messages"]
 
-                        # Consider all messages in history for this thread
-                        thread_messages = all_threads_history[thread_identifier]["messages"]
+                        # Filter out the single latest message (actual_latest_user_message_text) from history context
+                        # Its ID is latest_message_id
+                        history_for_prompt_excluding_latest = [
+                            msg for msg in current_full_thread_history if msg["id"] != latest_message_id
+                        ]
 
-                        # Determine the slice for history. We want messages *before* the current batch.
-                        # `new_ui_messages_to_process` contains the current batch.
-                        # Their text is already consolidated in `consolidated_message_text_ui`.
-                        # So, the history should be messages in `thread_messages` *excluding* those whose IDs are in `new_ui_messages_to_process`.
-                        # However, the prompt asks for the last N messages from all_threads_history.
-                        # The current `consolidated_message_text_ui` IS the latest user message.
-                        # So, `history_text` should be what came *before* `consolidated_message_text_ui`.
+                        # Take the last LLM_HISTORY_LENGTH messages from this filtered list
+                        final_messages_for_history_prompt = history_for_prompt_excluding_latest[-LLM_HISTORY_LENGTH:]
 
-                        # Let's take all messages from history, then format the last N,
-                        # ensuring the roles are correct. The `PROMPT_FIRST_TEMPLATE` uses `{history_text}`
-                        # and then has a specific `User's Latest Message: "{message_text}"`
-                        # This means `history_text_for_llm` should NOT include the `consolidated_message_text_ui`.
-
-                        # Get up to LLM_HISTORY_LENGTH messages from the thread history.
-                        # These messages are already sorted by append order (fetch time).
-                        historical_messages_for_prompt = thread_messages[-LLM_HISTORY_LENGTH:]
-
-                        for hist_msg in historical_messages_for_prompt:
-                            # Determine role for display in history string
+                        for hist_msg in final_messages_for_history_prompt:
                             role_display = BOT_DISPLAY_NAME if hist_msg[
                                                                    "username"].lower() == BOT_ACTUAL_USERNAME.lower() else "User"
-
-                            # If the historical message is part of the current new batch from the user,
-                            # it should NOT be in `history_text_for_llm` because it IS the `message_text`.
-                            is_current_user_message = any(
-                                new_msg["id"] == hist_msg["id"] for new_msg in new_ui_messages_to_process)
-                            if is_current_user_message and role_display == "User":  # Only skip if it's a user message part of current batch
-                                continue
-
                             prompt_history_lines.append(f"{role_display} ({hist_msg['username']}): {hist_msg['text']}")
 
                         history_text_for_llm = "\n".join(prompt_history_lines)
 
-                        # `consolidated_message_text_ui` (from new_ui_messages_to_process) is passed as `message_text`
-                        # to `format_message_for_llm`. This is the current user turn.
-                        # `history_text_for_llm` is the conversation context before this current turn.
-
                         # First pass to Gemini
+                        # Use actual_latest_user_message_text for the 'message_text' placeholder
                         prompt_first = format_message_for_llm(
                             PROMPT_FIRST_TEMPLATE,
                             bot_display_name=BOT_DISPLAY_NAME, bot_actual_username=BOT_ACTUAL_USERNAME,
@@ -436,10 +415,10 @@ def auto_respond_via_ui():
                             sender_username=sender_username_ui, thread_id=thread_identifier,
                             sender_full_name=sender_full_name_ui, timestamp=timestamp_approx_str,
                             sender_follower_count=sender_follower_count_ui, history_text=history_text_for_llm,
-                            message_text=consolidated_message_text_ui  # Use consolidated message
+                            message_text=actual_latest_user_message_text
                         )
                         print(
-                            f"Sending consolidated message to Gemini (1st pass) for {thread_identifier}...")
+                            f"Sending latest message to Gemini (1st pass) for {thread_identifier} from {sender_username_ui}: '{actual_latest_user_message_text[:50]}...'")
                         try:
                             response_first = chat_session.send_message(
                                 prompt_first)
@@ -473,8 +452,8 @@ def auto_respond_via_ui():
                                 # --- Handle Function Calls via UI ---
                                 if llm_function_name == "notify_owner":
                                     original_ctx = {"thread_id": thread_identifier,
-                                                    "sender_username": sender_username_ui,
-                                                    "timestamp": timestamp_approx_str}
+                                                    "sender_username": sender_username_ui,  # From last_message_data
+                                                    "timestamp": timestamp_approx_str}  # From last_message_data
                                     send_message_to_owner_via_ui(
                                         llm_args_for_second_prompt.get(
                                             "message", "LLM requested owner notification."),
@@ -487,59 +466,49 @@ def auto_respond_via_ui():
                                     target_user = llm_args_for_second_prompt.get(
                                         "target_username")
                                     target_thread_id_from_llm = llm_args_for_second_prompt.get(
-                                        "thread_id")  # Renamed to avoid clash
+                                        "thread_id")
                                     actual_target = target_user or target_thread_id_from_llm
                                     success_send = False
                                     if msg_to_send and actual_target:
-                                        # If target is different from current open thread
                                         if actual_target.lower() != active_thread_identifier.lower():
-                                            # Need to switch context
                                             if not u2_utils.search_and_open_dm_with_user(d_device, actual_target,
                                                                                          BOT_ACTUAL_USERNAME):
                                                 llm_args_for_second_prompt[
                                                     "details_for_user"] = f"I tried to message {actual_target} but couldn't find or open the chat."
                                             else:
-                                                active_thread_identifier = actual_target  # Switched context
+                                                active_thread_identifier = actual_target
                                                 success_send = u2_utils.send_dm_in_open_thread(d_device, msg_to_send)
                                                 if success_send:
                                                     _perform_back_press(d_device)
-                                                    active_thread_identifier = None  # Now in DM list
-                                        else:  # Target is the currently open thread
+                                                    active_thread_identifier = None
+                                        else:
                                             success_send = u2_utils.send_dm_in_open_thread(d_device, msg_to_send)
                                             if success_send:
                                                 _perform_back_press(d_device)
-                                                active_thread_identifier = None  # Now in DM list
+                                                active_thread_identifier = None
 
                                         if success_send:
                                             llm_args_for_second_prompt[
                                                 "details_for_user"] = f"I've sent your requested message to {actual_target}."
-                                        else:  # If sending failed
+                                        else:
                                             llm_args_for_second_prompt[
                                                 "details_for_user"] = f"I tried to send a message to {actual_target}, but it failed."
-                                            # If we failed to send, and we were in a switched context, we might still be in that target's chat.
-                                            # Or if it failed in the original chat, we are still there.
-                                            # No back press if send failed. The error message is set.
 
-                                        # IMPORTANT: If we switched context (active_thread_identifier was set to actual_target and it was different from thread_identifier)
-                                        # AND the message was sent (which means we did back_press and active_thread_identifier is None)
-                                        # we now need to switch back to the original thread to continue processing its messages.
-                                        # The original thread_identifier is the one we were iterating over.
-                                        original_target_for_loop = thread_identifier  # Clarify variable name
+                                        original_target_for_loop = thread_identifier
 
-                                        if target_user and target_user.lower() != original_target_for_loop.lower():  # If context was switched
+                                        if target_user and target_user.lower() != original_target_for_loop.lower():
                                             print(
                                                 f"LLM send_message: Context was switched to '{actual_target}'. Attempting to switch back to original thread '{original_target_for_loop}'.")
-                                            # After back_press, active_thread_identifier is None and we are on DM list.
                                             if u2_utils.open_thread_by_username(d_device, original_target_for_loop):
-                                                active_thread_identifier = original_target_for_loop  # Switched back
+                                                active_thread_identifier = original_target_for_loop
                                                 print(
                                                     f"Successfully switched back to original thread: {active_thread_identifier}")
                                             else:
                                                 print(
                                                     f"CRITICAL ERROR: Failed to switch back to original thread {original_target_for_loop} after sending message to {actual_target}. Further processing for this thread might be compromised.")
                                                 critical_context_switch_error = True
-                                                break  # Break from 'for part in response_first.parts'
-                                    else:  # msg_to_send or actual_target was missing
+                                                break
+                                    else:
                                         llm_args_for_second_prompt[
                                             "details_for_user"] = "I was asked to send a message, but the target or message was unclear."
 
@@ -550,7 +519,6 @@ def auto_respond_via_ui():
                                         "details_for_user"] = f"Fetching followers/followings for {target_fetch_user} via UI is complex and slow. This feature is currently stubbed for UI automation."
                                     print(
                                         f"STUB: UI fetch_followers_followings for {target_fetch_user}")
-                                # Add other function handlers here if needed
 
                             elif part.text:  # Direct text reply from LLM
                                 reply_text = format_message_for_llm(part.text.strip(),
@@ -559,10 +527,10 @@ def auto_respond_via_ui():
                                 print(
                                     f"LLM direct reply for {thread_identifier}: {reply_text[:50]}...")
                                 message_sent_successfully = False
-                                if active_thread_identifier and active_thread_identifier.lower() == thread_identifier.lower():  # Ensure we are in the correct thread
+                                if active_thread_identifier and active_thread_identifier.lower() == thread_identifier.lower():
                                     if u2_utils.send_dm_in_open_thread(d_device, reply_text):
                                         message_sent_successfully = True
-                                else:  # active_thread_identifier is None or different
+                                else:
                                     print(
                                         f"LLM direct reply: Active thread is '{active_thread_identifier}', target is '{thread_identifier}'. Re-opening target.")
                                     if u2_utils.open_thread_by_username(d_device, thread_identifier):
@@ -584,13 +552,14 @@ def auto_respond_via_ui():
                             prompt_second = format_message_for_llm(
                                 PROMPT_SECOND_TEMPLATE,
                                 bot_display_name=BOT_DISPLAY_NAME, bot_actual_username=BOT_ACTUAL_USERNAME,
-                                sender_username=sender_username_ui, message_text=consolidated_message_text_ui,
-                                # Consolidated
+                                sender_username=sender_username_ui,  # From last_message_data
+                                message_text=actual_latest_user_message_text,  # Use the single latest message
                                 thread_id=thread_identifier, function_name=llm_function_name,
                                 function_message_placeholder=function_execution_summary if llm_function_name == "notify_owner" else "",
                                 send_message_placeholder=function_execution_summary if llm_function_name == "send_message" else "",
                                 fetched_data_placeholder=function_execution_summary if llm_function_name == "fetch_followers_followings" else "",
-                                sender_full_name=sender_full_name_ui, timestamp=timestamp_approx_str,
+                                sender_full_name=sender_full_name_ui,  # From last_message_data
+                                timestamp=timestamp_approx_str,  # From last_message_data
                                 sender_follower_count=sender_follower_count_ui, owner_username=OWNER_USERNAME
                             )
                             try:
