@@ -1,4 +1,3 @@
-# config.py
 import os
 from dotenv import load_dotenv
 
@@ -9,20 +8,15 @@ OWNER_USERNAME = os.getenv("OWNER_USERNAME")
 bot_instagram_username = os.getenv("bot_instagram_username") # The bot's actual Instagram username/handle
 BOT_DISPLAY_NAME = os.getenv("BOT_DISPLAY_NAME", bot_instagram_username) # The name displayed on the bot's profile
 
-THREAD_FETCH_AMOUNT = int(os.getenv("THREAD_FETCH_AMOUNT", "10"))
-MESSAGE_FETCH_AMOUNT = int(os.getenv("MESSAGE_FETCH_AMOUNT", "15"))
-MIN_SLEEP_TIME = int(os.getenv("MIN_SLEEP_TIME", "60"))
-MAX_SLEEP_TIME = int(os.getenv("MAX_SLEEP_TIME", "180"))
+THREAD_FETCH_AMOUNT = int(os.getenv("THREAD_FETCH_AMOUNT", "10")) # Max threads to fetch from DM list initially
+MESSAGE_FETCH_AMOUNT = int(os.getenv("MESSAGE_FETCH_AMOUNT", "15")) # Max messages to fetch from an open thread
+MIN_SLEEP_TIME = int(os.getenv("MIN_SLEEP_TIME", "60")) # Min sleep time in seconds between cycles if an error occurs
+MAX_SLEEP_TIME = int(os.getenv("MAX_SLEEP_TIME", "180")) # Max sleep time in seconds between cycles if an error occurs
 
-NOTIFICATION_CHECK_INTERVAL = int(os.getenv("NOTIFICATION_CHECK_INTERVAL", "1"))
-
-# Interval for refreshing the DM list when actively processing (e.g., after handling a notification)
-DM_LIST_CHECK_INTERVAL = int(os.getenv("DM_LIST_CHECK_INTERVAL", "1"))
-
-# Interval in seconds to check for new DMs (blue dot) when none are found.
+# Interval in seconds to check for new DMs (blue dot indicator) when no unread DMs were found in the previous cycle.
 BLUE_DOT_CHECK_INTERVAL = int(os.getenv("BLUE_DOT_CHECK_INTERVAL", "5"))
 
-# Your PROMPT_FIRST_TEMPLATE and PROMPT_SECOND_TEMPLATE
+# --- Prompt Templates for Gemini ---
 PROMPT_FIRST_TEMPLATE = """
 You are Raphael, a sophisticated and autonomous digital assistant. You operate under the Instagram username [[bot_instagram_username]], and your profile display name is [[bot_display_name]].
 
@@ -69,7 +63,7 @@ You are currently interacting with [[sender_username]].
 * Use the "### Conversation History:" to inform your response and understand the context, but the query in "User's Latest Message:" is your primary focus.
 * If "User's Latest Message:" is a direct question (e.g., "What can you do?", "What is X?", "Tell me about Y"), and you can answer it using your general knowledge or available functions, provide a direct answer. 
 * Avoid asking for clarification if the question is reasonably clear and within your capabilities to answer. Only ask for clarification if the message is genuinely ambiguous, incomplete for a function call, or if providing a direct answer would be impossible or unsafe.
-* The "Initial Interaction" greeting (described under Response Guidelines) should only be used if "Conversation History:" is truly empty or contains only a previous introductory greeting from you without a substantive user reply. If there's any substantive prior interaction from the user, proceed directly to addressing their latest message.
+* **Crucial First Step:** If "Conversation History:" is truly empty (indicating no prior messages from the user) OR contains only a previous introductory greeting from you without any substantive user reply, your ABSOLUTE FIRST action MUST be to use the "Initial Interaction" greeting defined in "Response Guidelines". This step takes precedence over directly addressing "User's Latest Message:". Only after providing this full introduction should you proceed to analyze or respond to any content in "User's Latest Message:".
 
 ### Response Guidelines:
 * Tone: Maintain a warm, professional, and approachable demeanor with a touch of seriousness, reflecting competence and reliability. Avoid overly casual or frivolous language.
