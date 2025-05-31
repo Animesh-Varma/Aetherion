@@ -7,6 +7,7 @@ API_KEY = os.getenv("API_KEY")
 OWNER_USERNAME = os.getenv("OWNER_USERNAME")
 bot_instagram_username = os.getenv("bot_instagram_username") # The bot's actual Instagram username/handle
 BOT_DISPLAY_NAME = os.getenv("BOT_DISPLAY_NAME", bot_instagram_username) # The name displayed on the bot's profile
+device_ip = "192.168.29.207:5555"
 
 THREAD_FETCH_AMOUNT = int(os.getenv("THREAD_FETCH_AMOUNT", "10")) # Max threads to fetch from DM list initially
 MESSAGE_FETCH_AMOUNT = int(os.getenv("MESSAGE_FETCH_AMOUNT", "15")) # Max messages to fetch from an open thread

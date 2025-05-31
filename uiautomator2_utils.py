@@ -112,7 +112,7 @@ def go_to_home(d):
             break
         print(f"Home tab not visible yet, pressing back (attempt {i + 1}/{max_back_presses}).")
         d.press("back")
-        time.sleep(2)  # Allow UI to settle
+        time.sleep(0.5)  # Allow UI to settle
 
     if not home_tab_visible:
         print(
@@ -123,7 +123,7 @@ def go_to_home(d):
         print(f"ERROR: Failed to click the Home tab (ID: '{HOME_TAB_RESID}'). Bot may not be on home screen.")
     else:
         print("Successfully clicked the Home tab.")
-    time.sleep(1)  # Wait for home screen to load
+    time.sleep(0.2)
 
 
 def go_to_dm_list(d):
@@ -142,7 +142,7 @@ def go_to_dm_list(d):
         print(f"ERROR: DM icon '{DM_INBOX_ICON_RESID}' not found on home screen.")
         return False
     print("Clicked DM icon. Waiting for DM list to load.")
-    time.sleep(2)  # Wait for DM list to transition
+    time.sleep(0.5)  # Wait for DM list to transition
     if d(resourceId=DM_LIST_HEADER_TEXT_RESID).wait(timeout=5):
         print("Successfully navigated to DM list.")
         return True
@@ -169,7 +169,7 @@ def open_thread_by_username(d, target_username_in_list, max_scrolls=3):
                 if username_el.exists and target_username_in_list.lower() in username_el.info.get('text', '').lower():
                     print(f"Found thread container for '{target_username_in_list}'. Clicking.")
                     if safe_click(container):
-                        time.sleep(2)  # Wait for chat to open
+                        time.sleep(0.8)  # Wait for chat to open
                         # Verify chat opened with correct user
                         header_el = d(resourceId=DM_CHAT_HEADER_USERNAME_TEXT_RESID)
                         if header_el.wait(timeout=5):
@@ -187,13 +187,13 @@ def open_thread_by_username(d, target_username_in_list, max_scrolls=3):
                         return False  # Verification failed
         if i < max_scrolls:
             print(f"Scrolling DM list (attempt {i + 1}/{max_scrolls})")
-            d.swipe_ext("up", scale=0.8, duration=0.2)  # Swipe up to reveal more threads
-            time.sleep(1)  # Wait for scroll to complete
+            d.swipe_ext("up", scale=2.8, duration=0.2)  # Swipe up to reveal more threads
+            time.sleep(0.1)  # Wait for scroll to complete
     print(f"ERROR: Thread with '{target_username_in_list}' not found in DM list after {max_scrolls} scrolls.")
     return False
 
 
-def get_threads_from_dm_list(d, bot_username, max_threads_to_fetch=10, max_scrolls=3):
+def get_threads_from_dm_list(d, bot_username, max_threads_to_fetch=20, max_scrolls=4):
     """Fetches thread summaries from the DM list. Currently not used by main bot logic."""
     print("Fetching threads from DM list...")
     threads_data = []

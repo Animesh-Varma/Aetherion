@@ -5,7 +5,7 @@ import signal
 from datetime import datetime, timedelta
 from config import (API_KEY, OWNER_USERNAME, PROMPT_FIRST_TEMPLATE, PROMPT_SECOND_TEMPLATE,
                     bot_instagram_username, BOT_DISPLAY_NAME, THREAD_FETCH_AMOUNT, MESSAGE_FETCH_AMOUNT,
-                    MIN_SLEEP_TIME, MAX_SLEEP_TIME, BLUE_DOT_CHECK_INTERVAL
+                    MIN_SLEEP_TIME, MAX_SLEEP_TIME, BLUE_DOT_CHECK_INTERVAL, device_ip
                     )
 import google.generativeai as genai
 from google.generativeai.types import FunctionDeclaration, Tool
@@ -13,8 +13,8 @@ from google.generativeai.types import FunctionDeclaration, Tool
 import uiautomator2_utils as u2_utils
 
 # --- uiautomator2 Device Connection ---
-# USER: Configure your device connection here (e.g., IP:PORT for WiFi, or empty for USB if single device)
-d_device_identifier = "192.168.29.207:5555"
+# USER: Configure your device connection here (e.g., IP:PORT for Wi-Fi, or empty for USB if single device)
+d_device_identifier = device_ip
 d_device = None  # Will be initialized in __main__
 
 # --- Global Variables ---
@@ -29,6 +29,7 @@ processed_message_ids = set()  # Set of unique message IDs (hashes) that have be
 # --- Gemini Function Declarations ---
 # These define functions the LLM can request the bot to execute via UI automation.
 
+# Sends a msg to the owner
 notify_owner_func = FunctionDeclaration(
     name="notify_owner",
     description=f"Notify the owner ({OWNER_USERNAME}) about a message with detailed context.",
@@ -47,6 +48,7 @@ notify_owner_func = FunctionDeclaration(
     }
 )
 
+# Sends a msg to the specified user
 send_message_func = FunctionDeclaration(
     name="send_message",
     description="Sends a message to a specified user or existing thread via UI.",
@@ -61,6 +63,7 @@ send_message_func = FunctionDeclaration(
     }
 )
 
+# Fetches follower and following for any specified user (Currently un tested for uiautomator2_imp)
 fetch_followers_followings_func = FunctionDeclaration(
     name="fetch_followers_followings",
     description=f"Fetches followers/followings for a user. UI-Intensive: SLOW and LIMITED results. Only callable by {OWNER_USERNAME}.",
@@ -72,9 +75,7 @@ fetch_followers_followings_func = FunctionDeclaration(
     }
 )
 
-# TODO: Implement UI automation for commented-out functions if desired:
-# pause_response_func, resume_response_func, target_thread_func,
-# list_threads_func, view_dms_func
+# TODO: Functions to be implemented for uiautomator: pause_response_func, resume_response_func, target_thread_func, list_threads_func, view_dms_func
 tools = Tool(function_declarations=[
     notify_owner_func,
     send_message_func,
@@ -107,7 +108,7 @@ def send_message_to_owner_via_ui(message_body, original_context):
             print(f"Failed to type/send DM content to owner {OWNER_USERNAME}.")
     else:
         print(f"Failed to open/start DM thread with owner {OWNER_USERNAME}.")
-    u2_utils.go_to_dm_list(d_device)  # Ensure back in DM list for next cycle
+    u2_utils.go_to_dm_list(d_device)
 
 def login_ui():
     global d_device, BOT_ACTUAL_USERNAME

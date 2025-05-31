@@ -24,6 +24,7 @@
     *   `search_and_open_dm_with_user`: Improve error recovery, especially if intermediate steps in finding or creating a new chat fail.
 *   **Profile Info Scraping**:
     *   `get_bot_profile_info`: Verify the selectors for follower (`PROFILE_FOLLOWER_COUNT_TEXT_RESID`) and following (`PROFILE_FOLLOWING_COUNT_TEXT_RESID`) counts, as these can change with UI updates.
+*   **Fix msg retrieval errors/repetition**
 
 ## Code Quality & Maintenance
 *   Review and address any `FIXME` comments in the codebase.
