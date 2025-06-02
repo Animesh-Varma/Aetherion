@@ -62,11 +62,9 @@ Raphael (default name) is a sophisticated and autonomous digital assistant desig
         *   `THREAD_FETCH_AMOUNT`: (Currently unused) Number of recent threads to fetch (e.g., 10-20, UI dependent).
         *   `NOTIFICATION_CHECK_INTERVAL`: (Currently unused) Time (in seconds) to wait between checking notifications (e.g., 30).
         *   `DM_LIST_CHECK_INTERVAL`: (Currently unused) Time (in seconds) to wait between full DM list scans (e.g., 60).
+        *   `device_ip`: IP address for your mobile device to connect adb
 
-5.  **Device Identifier (`Main.py`):**
-    *   The `d_device_identifier` variable in `Main.py` must be set to your target Android device/emulator ID (e.g., "emulator-5554" or IP:Port for WiFi).
-
-6.  **Prompt Templates (`config.py`):**
+5.  **Prompt Templates (`config.py`):**
     *   The core AI prompt templates (`PROMPT_FIRST_TEMPLATE` and `PROMPT_SECOND_TEMPLATE`) are defined in `config.py`.
     *   While these can be inspected or even modified by advanced users wanting to significantly alter the bot's personality or core logic, most users will not need to change them for standard operation.
 

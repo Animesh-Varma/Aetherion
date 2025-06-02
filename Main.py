@@ -4,7 +4,7 @@ import random
 import signal
 from datetime import datetime, timedelta
 from config import (API_KEY, OWNER_USERNAME, PROMPT_FIRST_TEMPLATE, PROMPT_SECOND_TEMPLATE,
-                    bot_instagram_username, BOT_DISPLAY_NAME, THREAD_FETCH_AMOUNT, MESSAGE_FETCH_AMOUNT,
+                    bot_instagram_username, BOT_DISPLAY_NAME, MESSAGE_FETCH_AMOUNT,
                     MIN_SLEEP_TIME, MAX_SLEEP_TIME, BLUE_DOT_CHECK_INTERVAL, device_ip
                     )
 import google.generativeai as genai
@@ -25,6 +25,7 @@ start_time = datetime.now()  # Used for initial timestamp if a thread has no pri
 last_checked_timestamps = {}  # Key: thread_identifier, Value: datetime object (timestamp of last processed message in that thread)
 all_threads_history = {}  # Key: thread_identifier, Value: {"users": [usernames], "messages": []} (stores message history)
 processed_message_ids = set()  # Set of unique message IDs (hashes) that have been processed by the LLM in the current session
+bot_sent_message_hashes = set()
 
 # --- Gemini Function Declarations ---
 # These define functions the LLM can request the bot to execute via UI automation.
@@ -183,8 +184,6 @@ def auto_respond_via_ui():
         try:
             print(f"\n--- {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} --- UI Bot Cycle ---")
 
-            # 1. Navigate to DM List and check for unread threads (blue dot indicator)
-            # This is preferred over notification checks for reliability.
             if not u2_utils.go_to_dm_list(d_device):
                 print("ERROR: Failed to navigate to DM list at the start of the cycle. Retrying after sleep.")
                 continue
@@ -206,9 +205,11 @@ def auto_respond_via_ui():
                     if thread_identifier not in auto_responding:
                         auto_responding[thread_identifier] = True
                     if thread_identifier not in all_threads_history:
-                        all_threads_history[thread_identifier] = {"users": [thread_identifier, BOT_ACTUAL_USERNAME],
-                                                                  "messages": []}
-
+                        all_threads_history[thread_identifier] = {
+                            "users": [thread_identifier, BOT_ACTUAL_USERNAME],
+                            "messages": [],
+                            "processed_stable_ids": set()  # Initialize here
+                        }
                     last_ts_for_thread = last_checked_timestamps.get(thread_identifier, start_time - timedelta(hours=1))
 
                     if not u2_utils.open_thread_by_username(d_device, thread_identifier):
@@ -223,31 +224,40 @@ def auto_respond_via_ui():
                     active_thread_identifier = thread_identifier
 
                     messages_in_thread_ui = u2_utils.get_messages_from_open_thread(d_device, BOT_ACTUAL_USERNAME,
+                                                                                   bot_sent_message_hashes,
                                                                                    max_messages=MESSAGE_FETCH_AMOUNT)
                     latest_msg_timestamp_this_cycle = last_ts_for_thread
                     new_ui_messages_to_process = []
-                    current_thread_history_ids = {h_msg["id"] for h_msg in
-                                                  all_threads_history[thread_identifier]["messages"]}
+                    if "processed_stable_ids" not in all_threads_history[thread_identifier]:  # Ensure initialization
+                        all_threads_history[thread_identifier]["processed_stable_ids"] = set()
 
                     for msg_ui in messages_in_thread_ui:
                         if msg_ui["timestamp"] > latest_msg_timestamp_this_cycle:
                             latest_msg_timestamp_this_cycle = msg_ui["timestamp"]
 
-                        if msg_ui["id"] not in current_thread_history_ids:
+                        stable_id = hash(str(msg_ui.get("user_id", "")) + str(msg_ui.get("text", "")))
+
+                        if stable_id not in all_threads_history[thread_identifier]["processed_stable_ids"]:
+                            all_threads_history[thread_identifier]["processed_stable_ids"].add(stable_id)
+
                             history_entry = {
-                                "id": msg_ui["id"], "user_id": msg_ui["user_id"], "username": msg_ui["user_id"],
-                                "text": msg_ui["text"], "timestamp": msg_ui["timestamp"].strftime("%Y-%m-%d %H:%M:%S")
+                                "id": msg_ui["id"],
+                                "stable_id_for_history": stable_id,
+                                "user_id": msg_ui["user_id"],
+                                "username": msg_ui["user_id"],
+                                "text": msg_ui["text"],
+                                "timestamp": msg_ui["timestamp"].strftime("%Y-%m-%d %H:%M:%S")
                             }
                             all_threads_history[thread_identifier]["messages"].append(history_entry)
-                            current_thread_history_ids.add(msg_ui["id"])
-
                             if msg_ui["user_id"].lower() != BOT_ACTUAL_USERNAME.lower():
                                 new_ui_messages_to_process.append(msg_ui)
                                 processed_message_ids.add(msg_ui["id"])
+
                         elif msg_ui["id"] not in processed_message_ids and msg_ui[
                             "user_id"].lower() != BOT_ACTUAL_USERNAME.lower():
                             print(
-                                f"DEBUG: Message {msg_ui['id']} from {msg_ui['user_id']} found in history but not in session's processed_message_ids. Adding to process queue.")
+                                f"DEBUG: Message {msg_ui['id']} (stable_id: {stable_id}) from {msg_ui['user_id']} already in history by stable_id, but not in session's processed_message_ids. Adding to process queue."
+                            )
                             new_ui_messages_to_process.append(msg_ui)
                             processed_message_ids.add(msg_ui["id"])
 
@@ -282,8 +292,9 @@ def auto_respond_via_ui():
                                     k_word in last_message_data["text"].lower() for k_word in
                                     ["resume", "start", "unpause"]):
                                 auto_responding[thread_identifier] = True
-                                if u2_utils.send_dm_in_open_thread(d_device,
-                                                                   f"{BOT_DISPLAY_NAME}: Auto-response R E S U M E D for {thread_identifier}."):
+                                resume_message = f"{BOT_DISPLAY_NAME}: Auto-response R E S U M E D for {thread_identifier}."
+                                if u2_utils.send_dm_in_open_thread(d_device, resume_message):
+                                    bot_sent_message_hashes.add(hash(resume_message))
                                     _perform_back_press(d_device)
                                     active_thread_identifier = None
                                 print(
@@ -401,10 +412,13 @@ def auto_respond_via_ui():
                                                 active_thread_identifier = actual_target
                                                 success_send = u2_utils.send_dm_in_open_thread(d_device, msg_to_send)
                                                 if success_send:
+                                                    bot_sent_message_hashes.add(hash(msg_to_send))
                                                     _perform_back_press(d_device)  # Go back to DM list
                                                     active_thread_identifier = None  # We are no longer in actual_target's chat
                                         else:  # Sending to the current active thread
                                             success_send = u2_utils.send_dm_in_open_thread(d_device, msg_to_send)
+                                            if success_send:
+                                                bot_sent_message_hashes.add(hash(msg_to_send))
                                             # No _perform_back_press here; if LLM sends multiple messages to same user, stay in thread.
                                             # The final _perform_back_press for the 2nd pass explanation will handle exiting.
 
@@ -448,6 +462,8 @@ def auto_respond_via_ui():
                                 if active_thread_identifier and active_thread_identifier.lower() == thread_identifier.lower():
                                     if u2_utils.send_dm_in_open_thread(d_device, reply_text):
                                         message_sent_successfully = True
+                                        if message_sent_successfully:
+                                            bot_sent_message_hashes.add(hash(reply_text))
                                 else:  # Should not happen if send_message context switch is handled correctly
                                     print(
                                         f"LLM direct reply: Active thread is '{active_thread_identifier}', target is '{thread_identifier}'. Re-opening target.")
@@ -485,6 +501,8 @@ def auto_respond_via_ui():
                                         if active_thread_identifier and active_thread_identifier.lower() == thread_identifier.lower():  # Ensure correct thread for explanation
                                             if u2_utils.send_dm_in_open_thread(d_device, user_explanation):
                                                 message_sent_successfully_explain = True
+                                                if message_sent_successfully_explain:
+                                                    bot_sent_message_hashes.add(hash(user_explanation))
                                         else:  # This case should ideally be rare if context is managed well
                                             print(
                                                 f"LLM explanation: Active thread is '{active_thread_identifier}', target is '{thread_identifier}'. Re-opening target for explanation.")
@@ -492,6 +510,8 @@ def auto_respond_via_ui():
                                                 active_thread_identifier = thread_identifier
                                                 if u2_utils.send_dm_in_open_thread(d_device, user_explanation):
                                                     message_sent_successfully_explain = True
+                                                    if message_sent_successfully_explain:
+                                                        bot_sent_message_hashes.add(hash(user_explanation))
                                             else:
                                                 print(
                                                     f"ERROR: Could not re-open {thread_identifier} for 2nd pass explanation. Message lost.")

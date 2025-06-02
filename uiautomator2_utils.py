@@ -76,7 +76,6 @@ GENERAL_SEARCH_RESULT_USERNAME_TEXT_RESID = "com.instagram.android:id/row_search
 BACK_BUTTON_DESC = "Back"
 OPTIONS_BUTTON_DESC = "Options"  # Generic options menu button
 
-
 # --- End Constants ---
 
 def safe_click(element, timeout=5):
@@ -88,7 +87,6 @@ def safe_click(element, timeout=5):
         f"WARN: Element not found for click after {timeout}s: {element.selector if hasattr(element, 'selector') else 'Unknown element'}")
     return False
 
-
 def ensure_instagram_open(d, package_name="com.instagram.android"):
     """Ensures Instagram is in the foreground, starting it if necessary."""
     current_app = d.app_current()
@@ -96,7 +94,6 @@ def ensure_instagram_open(d, package_name="com.instagram.android"):
         print(f"Instagram not in foreground. Current app: {current_app['package']}. Starting Instagram...")
         d.app_start(package_name, use_monkey=True)  # use_monkey=True can help bypass some startup issues
         time.sleep(3)  # Wait for app to load
-
 
 def go_to_home(d):
     """Navigates to the Instagram home screen by pressing back multiple times then clicking the home tab."""
@@ -187,7 +184,7 @@ def open_thread_by_username(d, target_username_in_list, max_scrolls=3):
                         return False  # Verification failed
         if i < max_scrolls:
             print(f"Scrolling DM list (attempt {i + 1}/{max_scrolls})")
-            d.swipe_ext("up", scale=2.8, duration=0.2)  # Swipe up to reveal more threads
+            d.swipe_ext("up", scale=1.8, duration=0.2)  # Swipe up to reveal more threads
             time.sleep(0.1)  # Wait for scroll to complete
     print(f"ERROR: Thread with '{target_username_in_list}' not found in DM list after {max_scrolls} scrolls.")
     return False
@@ -228,8 +225,7 @@ def get_threads_from_dm_list(d, bot_username, max_threads_to_fetch=20, max_scrol
     print(f"Fetched {len(threads_data)} thread summaries from DM list.")
     return threads_data
 
-
-def get_messages_from_open_thread(d, bot_username, max_messages=20, max_scrolls_up=3):
+def get_messages_from_open_thread(d, bot_username, bot_sent_message_hashes, max_messages=20, max_scrolls_up=3):
     """
     Fetches messages currently visible in an open DM thread.
     NOTE: This version does not scroll up to fetch older messages due to complexity and unreliability.
@@ -263,15 +259,30 @@ def get_messages_from_open_thread(d, bot_username, max_messages=20, max_scrolls_
                 processed_msg_hashes.add(msg_hash)
 
                 screen_width = d.window_size()[0]
+                text = text_el.info['text']
+                msg_hash_for_tracking = hash(text)  # Calculate hash of the text content
+
                 # Heuristic: outgoing messages (sent by bot) are usually on the right half.
                 is_outgoing = bubble.info['bounds']['left'] > screen_width / 3
 
-                sender_ui_name = bot_username if is_outgoing else peer_username
+                # Determine sender_ui_name
+                # Revised logic for sender_ui_name:
+                explicit_sender_name_el = bubble.child(resourceId=DM_CHAT_MESSAGE_SENDER_NAME_TEXT_RESID)
+                explicit_sender_name = None
+                if explicit_sender_name_el.exists:
+                    explicit_sender_name = explicit_sender_name_el.info['text']
 
-                # For group chats, check for explicit sender name within the bubble
-                sender_name_explicit_el = bubble.child(resourceId=DM_CHAT_MESSAGE_SENDER_NAME_TEXT_RESID)
-                if sender_name_explicit_el.exists:
-                    sender_ui_name = sender_name_explicit_el.info['text']
+                if msg_hash_for_tracking in bot_sent_message_hashes:
+                    sender_ui_name = bot_username  # Verified self-sent
+                elif explicit_sender_name and explicit_sender_name.lower() == bot_username.lower():
+                    # If explicit name matches bot, and not caught by hash (e.g. old message)
+                    sender_ui_name = bot_username
+                elif explicit_sender_name:
+                    sender_ui_name = explicit_sender_name  # Group chat message from another user
+                elif is_outgoing:
+                    sender_ui_name = bot_username  # UI heuristic for bot's message
+                else:
+                    sender_ui_name = peer_username  # Default to peer
 
                 current_screen_messages.append({
                     "id": msg_hash,  # Unique ID for this scraped instance of the message
@@ -295,7 +306,6 @@ def get_messages_from_open_thread(d, bot_username, max_messages=20, max_scrolls_
         print(f"Fetched {len(messages)} messages from open thread.")
     # Sort by timestamp (oldest first) as messages are scraped top-to-bottom of screen
     return sorted(messages, key=lambda x: x['timestamp'])
-
 
 def send_dm_in_open_thread(d, message_text):
     """Sends a DM in the currently open chat thread."""
