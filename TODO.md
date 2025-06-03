@@ -3,6 +3,7 @@
 ## 🐞 Fixes
 - [ ] fetch_followers_followings is currently a stub and requires implementation.
 - [ ] Fix the response order of multiple unread responses
+- [ ] Self calling of notify_owner function by LLM without explicit mention working inconsistency (test again for confirmation)
 - [ ] Fix message history and phrasing issues 
 - [ ] Reimplement functions available for Instagrapi implementation for UIAutomator2 implementation
     - [ ] pause_response: LLM/user/owner-triggered pause_response, each with different lift rules (special instance for owner)
