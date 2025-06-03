@@ -13,5 +13,7 @@
 *   **Reliable multiple API calls for function call confirmation**: The second API call doesn't consistently reply with the status of the function call.
 *   **Reliable way to relay messages(DM's)**: Find a more robust way to send messages(DM) to a specific user with accuracy.
 *   **Split long message responses**: Since Instagram has a limit on message length, split long responses into multiple parts.
+*   **Fix multiple unread responce**
 
+#### Revisit system prompt 
 #### Update README.md
