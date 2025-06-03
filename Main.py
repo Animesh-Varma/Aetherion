@@ -4,11 +4,9 @@ import random
 import signal
 from datetime import datetime, timedelta
 
-from pyparsing import empty
-
 from config import (API_KEY, OWNER_USERNAME, PROMPT_FIRST_TEMPLATE, PROMPT_SECOND_TEMPLATE,
                     bot_instagram_username, BOT_DISPLAY_NAME, MESSAGE_FETCH_AMOUNT,
-                    MIN_SLEEP_TIME, MAX_SLEEP_TIME, BLUE_DOT_CHECK_INTERVAL, device_ip
+                    MIN_SLEEP_TIME, MAX_SLEEP_TIME, BLUE_DOT_CHECK_INTERVAL, DEVICE_IDENTIFIER
                     )
 import google.generativeai as genai
 from google.generativeai.types import FunctionDeclaration, Tool
@@ -17,12 +15,13 @@ import uiautomator2_utils as u2_utils
 
 # --- uiautomator2 Device Connection ---
 # USER: Configure your device connection here (e.g., IP:PORT for Wi-Fi, or device serial number for USB if single device)
-d_device_identifier = device_ip
+d_device_identifier = DEVICE_IDENTIFIER
 d_device = None  # Will be initialized in __main__
 
 # --- Global Variables ---
 BOT_ACTUAL_USERNAME = bot_instagram_username  # Initial assumption, verified/updated in login_ui()
 auto_responding = {}  # Key: thread_identifier (peer_username/group_name), Value: bool (true if auto-responding)
+bot_profile_info_global = None
 genai.configure(api_key=API_KEY)
 start_time = datetime.now()  # Used for initial timestamp if a thread has no prior check time
 last_checked_timestamps = {}  # Key: thread_identifier, Value: datetime object (timestamp of last processed message in that thread)
@@ -68,7 +67,7 @@ send_message_func = FunctionDeclaration(
 )
 
 # Fetches follower and following for any specified user (Currently un tested for uiautomator2_imp)
-fetch_followers_followings_func = FunctionDeclaration(
+fetch_followers_followings = FunctionDeclaration(
     name="fetch_followers_followings",
     description=f"Fetches followers/followings for a user. UI-Intensive: SLOW and LIMITED results. Only callable by {OWNER_USERNAME}.",
     parameters={
@@ -79,11 +78,10 @@ fetch_followers_followings_func = FunctionDeclaration(
     }
 )
 
-# TODO: Functions to be implemented for uiautomator: pause_response_func, resume_response_func, target_thread_func, list_threads_func, view_dms_func
 tools = Tool(function_declarations=[
     notify_owner_func,
     send_message_func,
-    fetch_followers_followings_func
+    fetch_followers_followings
 ])
 model = genai.GenerativeModel("gemini-1.5-flash-latest", tools=tools)
 
@@ -98,11 +96,22 @@ def send_message_to_owner_via_ui(message_body, original_context):
         print("ERROR: OWNER_USERNAME not configured.")
         return
 
+    timestamp_str = original_context.get('timestamp', 'N/A')
+    formatted_timestamp = ""
+
+    if timestamp_str and timestamp_str != "N/A":
+        try:
+            dt_object = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
+            formatted_timestamp = dt_object.strftime('\nDate: %B %d, %Y\nTime: %Hh %Mm %Ss')
+        except ValueError:
+            formatted_timestamp = f"Timestamp (raw): [{timestamp_str}]"
+    else:
+        formatted_timestamp = "Timestamp: [Not Available]"
+
     full_message_to_owner = (f"{BOT_DISPLAY_NAME} ({BOT_ACTUAL_USERNAME}) Update for Master {OWNER_USERNAME}:\n"
                              f"{message_body}\n---Original Context---\n"
-                             f"Thread: {original_context.get('thread_id', 'N/A')}\n"
                              f"Sender: {original_context.get('sender_username', 'N/A')}\n"
-                             f"Timestamp: {original_context.get('timestamp', 'N/A')}\n")
+                             f"---Notification Timestamp---{formatted_timestamp}\n")
 
     print(f"Attempting to send to owner ({OWNER_USERNAME}) via UI: {full_message_to_owner[:100]}...")
     if u2_utils.search_and_open_dm_with_user(d_device, OWNER_USERNAME, BOT_ACTUAL_USERNAME):
@@ -115,7 +124,7 @@ def send_message_to_owner_via_ui(message_body, original_context):
     u2_utils.go_to_dm_list(d_device)
 
 def login_ui():
-    global d_device, BOT_ACTUAL_USERNAME
+    global d_device, BOT_ACTUAL_USERNAME, bot_profile_info_global
     print("Attempting UI Login/Setup...")
     u2_utils.ensure_instagram_open(d_device)
     time.sleep(3)  # Give app time to settle
@@ -123,6 +132,7 @@ def login_ui():
     # Get bot's actual username from its profile page
     profile_info = u2_utils.get_bot_profile_info(d_device,
                                                  bot_instagram_username)  # bot_instagram_username from config is an initial guess
+    bot_profile_info_global = profile_info
     if profile_info.get("username"):
         BOT_ACTUAL_USERNAME = profile_info["username"]
         if BOT_ACTUAL_USERNAME.lower() != bot_instagram_username.lower():
@@ -143,14 +153,13 @@ def login_ui():
 
 
 def print_bot_user_info_ui():
-    global d_device, BOT_ACTUAL_USERNAME
+    global d_device, BOT_ACTUAL_USERNAME, bot_profile_info_global
     print(f"\n--- Bot ({BOT_ACTUAL_USERNAME}) Profile Info (UI Scraped) ---")
-    info = u2_utils.get_bot_profile_info(d_device, BOT_ACTUAL_USERNAME)  # Re-scrape or use stored if available
-    print(f"  Username: {info.get('username', BOT_ACTUAL_USERNAME)}")
-    print(f"  Full Name: {info.get('full_name', 'N/A')}")
-    print(f"  Biography: {info.get('biography', 'N/A')}")
-    print(f"  Followers: {info.get('follower_count', 'N/A')}")
-    u2_utils.go_to_dm_list(d_device)  # Return to DMs
+    print(f"  Username: {bot_profile_info_global.get('username', BOT_ACTUAL_USERNAME) if bot_profile_info_global else BOT_ACTUAL_USERNAME}")
+    print(f"  Full Name: {bot_profile_info_global.get('full_name', 'N/A') if bot_profile_info_global else 'N/A'}")
+    print(f"  Biography: {bot_profile_info_global.get('biography', 'N/A') if bot_profile_info_global else 'N/A'}")
+    print(f"  Followers: {bot_profile_info_global.get('follower_count', 'N/A') if bot_profile_info_global else 'N/A'}")
+    u2_utils.go_to_dm_list(d_device) # Return to DMs
 
 
 def _perform_back_press(d_device_internal, LLM_HISTORY_LENGTH=10):
@@ -408,6 +417,7 @@ def auto_respond_via_ui():
                                     actual_target = target_user or target_thread_id_from_llm
                                     success_send = False
                                     if msg_to_send and actual_target:
+                                        message_with_sender = f"{sender_username_ui}: {msg_to_send}"
                                         if actual_target.lower() != active_thread_identifier.lower():  # Sending to a different user/thread
                                             if not u2_utils.search_and_open_dm_with_user(d_device, actual_target,
                                                                                          BOT_ACTUAL_USERNAME):
@@ -417,17 +427,17 @@ def auto_respond_via_ui():
                                                 active_thread_identifier = actual_target
                                                 print(
                                                     f"INFO: Context switched to target {actual_target} for sending message.")
-                                                success_send = u2_utils.send_dm_in_open_thread(d_device, msg_to_send)
+                                                success_send = u2_utils.send_dm_in_open_thread(d_device, message_with_sender)
                                                 if success_send:
-                                                    bot_sent_message_hashes.add(hash(msg_to_send))
+                                                    bot_sent_message_hashes.add(hash(message_with_sender))
                                                     _perform_back_press(d_device)  # Go back to DM list
                                                     active_thread_identifier = None  # We are no longer in actual_target's chat
                                                     print(
                                                         f"INFO: Returned to DM list after sending to {actual_target}. Active context reset to None.")
                                         else:  # Sending to the current active thread
-                                            success_send = u2_utils.send_dm_in_open_thread(d_device, msg_to_send)
+                                            success_send = u2_utils.send_dm_in_open_thread(d_device, message_with_sender)
                                             if success_send:
-                                                bot_sent_message_hashes.add(hash(msg_to_send))
+                                                bot_sent_message_hashes.add(hash(message_with_sender))
                                             # No _perform_back_press here; if LLM sends multiple messages to same user, stay in thread.
                                             # The final _perform_back_press for the 2nd pass explanation will handle exiting.
 

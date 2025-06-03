@@ -1,18 +1,35 @@
 # Project TODO List
 
-## Unimplemented Features & Enhancements
+## 🐞 Fixes
+- [ ] fetch_followers_followings is currently a stub and requires implementation.
+- [ ] Fix response order of multiple unread response
+- [ ] Reimplement function available for instagrapi implementation for uiautomator2 implementation
+    - [ ] pause_response: LLM/user/owner-triggered pause_response each with different lift rules (special instance for owner)
+    - [ ] resume_response: keyword-based resume_response function to resume auto response without wasting API usage 
+    - [ ] target_thread: Select thread for manual function calls (Only callable by owner)
+    - [ ] list_threads: list all open threads (Only callable by owner)
+    - [ ] view_dms: view DMs in a thread (Only callable by owner)
+- [x] Reliable multiple API calls for function call confirmation
 
-### Core Functionality
-*   **`fetch_followers_followings_func`**: The UI automation logic in `uiautomator2_utils.py` for `fetch_followers_followings` is currently a stub. Implement the necessary UI interactions to reliably fetch follower and following lists for a target user.
-*   **LLM Function Integration**: Several functions declared for Gemini in `Main.py` lack corresponding UI automation hooks or are not actively used in the new uiautomator2 implementation:
-    *   `pause_response_func`: While keyword-based pause/resume exists, the LLM-triggered `pause_response_func` is not implemented via UI actions.
-    *   `resume_response_func`: Similar to pausing, the LLM-triggered `resume_response_func` is not implemented via UI actions.
-    *   `target_thread_func`: UI automation to switch focus to a specific thread based on an LLM command needs to be implemented.
-    *   `list_threads_func`: UI automation to list active threads based on an LLM command needs to be implemented.
-    *   `view_dms_func`: UI automation to view DMs in a thread based on an LLM command needs to be implemented.
-*   **Reliable way to relay messages(DM's)**: Find a more robust way to send messages(DM) to a specific user with accuracy.
-*   **Split long message responses**: Since Instagram has a limit on message length, split long responses into multiple parts.
-*   **Fix multiple unread responce**
+---
 
-#### Revisit system prompt 
-#### Update README.md
+## 🔧 Improvements/Features
+- [ ] Split long message responses
+- [ ] Create association between name and username
+- [ ] natural typing output
+- [ ] Ollama integration
+
+---
+
+## 📚 Documentation
+- [ ] Review README.md 
+- [x] Review README.md (June 4, 2025)
+
+---
+
+## 🧹 Chores
+- [ ] Update requirements.txt
+
+---
+
+> TODO tracking started on May 31, 2025

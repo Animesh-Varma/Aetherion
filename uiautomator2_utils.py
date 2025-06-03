@@ -131,8 +131,11 @@ def go_to_dm_list(d):
                 resourceId=DM_LIST_SEARCH_ACTIVATION_ELEMENT_RESID).exists):
         print("Already on DM list screen.")
         return True
-
     ensure_instagram_open(d)
+    # Check again if already on DM list
+    if d(resourceId=DM_LIST_HEADER_TEXT_RESID).wait(timeout=5):
+        print("Already on DM list screen.")
+        return True
     go_to_home(d)  # Start from home screen to ensure main tabs are present
     dm_button = d(resourceId=DM_INBOX_ICON_RESID)
     if not safe_click(dm_button, timeout=10):  # Increased timeout for safety
