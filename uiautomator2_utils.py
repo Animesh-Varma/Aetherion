@@ -166,7 +166,7 @@ def open_thread_by_username(d, target_username_in_list, max_scrolls=3):
                 if username_el.exists and target_username_in_list.lower() in username_el.info.get('text', '').lower():
                     print(f"Found thread container for '{target_username_in_list}'. Clicking.")
                     if safe_click(container):
-                        time.sleep(0.8)  # Wait for chat to open
+                        time.sleep(0.3)  # Wait for chat to open
                         # Verify chat opened with correct user
                         header_el = d(resourceId=DM_CHAT_HEADER_USERNAME_TEXT_RESID)
                         if header_el.wait(timeout=5):
@@ -225,7 +225,7 @@ def get_threads_from_dm_list(d, bot_username, max_threads_to_fetch=20, max_scrol
     print(f"Fetched {len(threads_data)} thread summaries from DM list.")
     return threads_data
 
-def get_messages_from_open_thread(d, bot_username, bot_sent_message_hashes, max_messages=20, max_scrolls_up=3):
+def get_messages_from_open_thread(d, bot_username, bot_sent_message_hashes, max_messages=20):
     """
     Fetches messages currently visible in an open DM thread.
     NOTE: This version does not scroll up to fetch older messages due to complexity and unreliability.
@@ -319,14 +319,14 @@ def send_dm_in_open_thread(d, message_text):
         print(f"ERROR: Could not click DM input field '{DM_CHAT_INPUT_FIELD_RESID}'.")
         return False
     d.clear_text()  # Clear any existing text
-    time.sleep(0.2)
+    time.sleep(0.01)
     d.send_keys(message_text)  # Type the message
     time.sleep(0.5)
     if not safe_click(send_button):
         print(f"ERROR: DM send button '{DM_CHAT_SEND_BUTTON_RESID}' not found or clickable.")
         return False
     print(f"DM sent (attempted): '{message_text[:30]}...'")
-    time.sleep(1)  # Wait for message to send/UI to update
+    time.sleep(0.5)  # Wait for message to send/UI to update
     return True
 
 
@@ -392,13 +392,13 @@ def go_to_own_profile(d, bot_username):
     if d(resourceId=DM_LIST_HEADER_TEXT_RESID).exists or d(description=DM_LIST_NEW_CHAT_BUTTON_DESC).exists:
         print("Currently on DM list, pressing back to reach main navigation tabs.")
         d.press("back")
-        time.sleep(1.5)
+        time.sleep(0.6)
 
     profile_tab_button = d(resourceId=PROFILE_TAB_RESID)  # Bottom profile tab
     if not safe_click(profile_tab_button):
         print(f"ERROR: Profile tab/button '{PROFILE_TAB_RESID}' not found.")
         return False
-    time.sleep(3)  # Wait for profile to load
+    time.sleep(1)  # Wait for profile to load
 
     # Verify own profile by checking username in header (specific ID for own profile)
     # Own profile username header ID might be different from other users' profile headers.
@@ -430,7 +430,6 @@ def get_bot_profile_info(d, bot_username):
     if full_name_el.exists: info["full_name"] = full_name_el.info.get('text')
     bio_el = d(resourceId=PROFILE_BIO_TEXT_RESID)
     if bio_el.exists: info["biography"] = bio_el.info.get('text')
-    # TODO: Verify PROFILE_FOLLOWER_COUNT_TEXT_RESID and PROFILE_FOLLOWING_COUNT_TEXT_RESID are correct and robust.
     follower_el = d(resourceId=PROFILE_FOLLOWER_COUNT_TEXT_RESID)
     if follower_el.exists: info["follower_count"] = follower_el.info.get('text', '').replace(',', '')
     following_el = d(resourceId=PROFILE_FOLLOWING_COUNT_TEXT_RESID)
@@ -488,7 +487,7 @@ def send_dm_from_profile(d, target_username, message_text):
         return False
 
     print("Clicked 'Send message' option. Waiting for DM chat screen to open...")
-    time.sleep(3.5)  # Wait for DM screen
+    time.sleep(2.5)  # Wait for DM screen
 
     # Verify correct chat screen is open
     header_el_verify = d(resourceId=DM_CHAT_HEADER_USERNAME_TEXT_RESID)
@@ -532,7 +531,7 @@ def search_and_open_dm_with_user(d, target_username, bot_username):
         print(f"ERROR: New chat button (desc: '{DM_LIST_NEW_CHAT_BUTTON_DESC}') not found in DM list.")
         return False
     print("Clicked 'New message' button. Waiting for New Chat screen...")
-    time.sleep(1.5)
+    time.sleep(0.5)
 
     search_input_selector = d(resourceId=NEW_CHAT_TO_FIELD_INPUT_RESID)  # "To:" field
     if not safe_click(search_input_selector):  # Click to focus
@@ -574,7 +573,7 @@ def search_and_open_dm_with_user(d, target_username, bot_username):
         return False
 
     print(f"Clicked on '{target_username}'. Expecting to be on chat screen...")
-    time.sleep(2)  # Wait for chat screen to load
+    time.sleep(0.5)  # Wait for chat screen to load
 
     # Verify on chat screen with correct user
     header_el_verify = d(resourceId=DM_CHAT_HEADER_USERNAME_TEXT_RESID)
@@ -605,7 +604,7 @@ def return_to_dm_list_from_thread(d):
     """Attempts to return to DM list from an open thread, with verification."""
     print("Attempting to return to DM list from an open thread by pressing back...")
     d.press("back")
-    time.sleep(1.5)  # Allow UI to transition
+    time.sleep(0.6)  # Allow UI to transition
 
     # Verify return to DM list by checking for known elements
     dm_list_header = d(resourceId=DM_LIST_HEADER_TEXT_RESID)
