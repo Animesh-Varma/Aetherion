@@ -1,6 +1,6 @@
 # Project Aetherion
 
-## Description
+## 📝 Description
 
 Raphael (default name) is a sophisticated and autonomous digital assistant designed to operate within an Instagram environment. It uses `uiautomator2` for UI automation to interact with the Instagram app and Google's Generative AI (Gemini Pro) to understand messages and generate intelligent, context-aware responses. Its primary role is to assist users effectively while serving the interests of its owner. It's worth noting that with the advent of Meta AI integrated directly within Instagram, some of the bot's current Instagram-focused functionalities might seem redundant. However, Aetherion's vision extends far beyond this initial scope.
 
@@ -15,7 +15,7 @@ Raphael (default name) is a sophisticated and autonomous digital assistant desig
 *   **Owner Controls:** Specific functions are restricted to the bot owner for security and control. (Awaiting implementation)
 *   **Graceful Error Handling:** Designed to handle common issues and continue operation.
 
-## Planned Features
+## 💡 Planned Features
 
 *   `pause_auto_response`: Temporarily stop automatic replies for a specific chat.
 *   `resume_auto_response`: Resume automatic replies for a chat.
@@ -24,7 +24,7 @@ Raphael (default name) is a sophisticated and autonomous digital assistant desig
 *   `view_dms`: (Owner only) View past DMs in a thread.
 *   `fetch_followers_followings`: Fetch followers and followings for an Instagram account (UI-Intensive).
 
-## Future Vision
+## 🔭 Future Vision
 The long-term goal for Aetherion is to evolve beyond Instagram and become a comprehensive, device-wide automaton service. I envision a powerful assistant capable of:
 
 *   **Interacting with various communication platforms:** Seamlessly manage conversations and tasks across WhatsApp and SMS.
