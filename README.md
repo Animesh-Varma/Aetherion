@@ -29,8 +29,8 @@ Raphael (default name) is a sophisticated and autonomous digital assistant desig
 
 1.  **Clone the Repository:**
     ```bash
-    git clone https://github.com/yourusername/your-repo-name
-    cd your-repo-name
+    git clone https://github.com/Animesh-Varma/Aetherion
+    cd Aetherion
     ```
 
 2.  **Create a Virtual Environment (Recommended):**
