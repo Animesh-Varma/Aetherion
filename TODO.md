@@ -17,7 +17,7 @@
 - [ ] Split long message responses
 - [ ] Check for new messages before sending a response from the API
 - [ ] Create an association between the name and the username of Instagram accounts 
-- [ ] natural typing output
+- [ ] Natural typing input for Instagram instead of pasting text 
 - [ ] Ollama integration
 
 ---
