@@ -87,11 +87,7 @@ You are currently interacting with [[sender_username]].
 ### Context:
 A user, [[sender_username]], sent me this message: "[[message_text]]" in thread [[thread_id]].
 I just executed the function `[[function_name]]` in response to their request.
-[[function_message_placeholder]]
-[[target_thread_placeholder]]
-[[send_message_placeholder]]
-[[list_or_view_dms_placeholder]]
-[[fetched_data_placeholder]]
+Summary of action taken: [[function_execution_summary]]
 
 ### Available Variables:
 * [[thread_id]]: [[thread_id]]

@@ -156,7 +156,15 @@ def _get_element_identifier(ui_object_info):
 
 def open_thread_by_username(d, target_username_in_list, max_scrolls=3):
     """Opens an existing DM thread from the DM list by scrolling and matching username."""
-    print(f"Searching for thread with '{target_username_in_list}' in DM list...")
+    # Check if already in the target chat
+    header_el_check = d(resourceId=DM_CHAT_HEADER_USERNAME_TEXT_RESID)
+    if header_el_check.wait(timeout=0.5): # Use a short timeout, as this is just a pre-check
+        current_chat_header_identifier = _get_element_identifier(header_el_check.info)
+        if current_chat_header_identifier and target_username_in_list.lower() in current_chat_header_identifier.lower():
+            print(f"Already in correct thread with '{target_username_in_list}'. No action needed by open_thread_by_username.")
+            return True
+    # If not already in the chat, then proceed to search the DM list
+    print(f"Searching for thread with '{target_username_in_list}' in DM list (as not currently in it)...")
     for i in range(max_scrolls + 1):  # Loop for scrolling
         thread_containers = d(resourceId=DM_THREAD_ITEM_CONTAINER_RESID)
         if thread_containers.exists:
@@ -184,7 +192,7 @@ def open_thread_by_username(d, target_username_in_list, max_scrolls=3):
                         return False  # Verification failed
         if i < max_scrolls:
             print(f"Scrolling DM list (attempt {i + 1}/{max_scrolls})")
-            d.swipe_ext("up", scale=1.8, duration=0.2)  # Swipe up to reveal more threads
+            d.swipe_ext("up", scale=0.8, duration=0.2)  # Swipe up to reveal more threads
             time.sleep(0.1)  # Wait for scroll to complete
     print(f"ERROR: Thread with '{target_username_in_list}' not found in DM list after {max_scrolls} scrolls.")
     return False

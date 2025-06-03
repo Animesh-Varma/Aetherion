@@ -3,6 +3,9 @@ import time
 import random
 import signal
 from datetime import datetime, timedelta
+
+from pyparsing import empty
+
 from config import (API_KEY, OWNER_USERNAME, PROMPT_FIRST_TEMPLATE, PROMPT_SECOND_TEMPLATE,
                     bot_instagram_username, BOT_DISPLAY_NAME, MESSAGE_FETCH_AMOUNT,
                     MIN_SLEEP_TIME, MAX_SLEEP_TIME, BLUE_DOT_CHECK_INTERVAL, device_ip
@@ -13,7 +16,7 @@ from google.generativeai.types import FunctionDeclaration, Tool
 import uiautomator2_utils as u2_utils
 
 # --- uiautomator2 Device Connection ---
-# USER: Configure your device connection here (e.g., IP:PORT for Wi-Fi, or empty for USB if single device)
+# USER: Configure your device connection here (e.g., IP:PORT for Wi-Fi, or device serial number for USB if single device)
 d_device_identifier = device_ip
 d_device = None  # Will be initialized in __main__
 
@@ -168,6 +171,8 @@ def _perform_back_press(d_device_internal, LLM_HISTORY_LENGTH=10):
 def auto_respond_via_ui():
     global d_device, auto_responding, last_checked_timestamps, processed_message_ids, all_threads_history, BOT_ACTUAL_USERNAME
     LLM_HISTORY_LENGTH = 10  # Number of past messages to include in LLM prompt history
+    MAX_ATTEMPTS = 3  # Max attempts for LLM calls
+    SEND_EXPLANATION_ATTEMPTS = 3  # Max attempts for sending the explanation message
 
     print("Ensuring Instagram is open at the start of the bot cycle...")
     u2_utils.ensure_instagram_open(d_device)
@@ -410,11 +415,15 @@ def auto_respond_via_ui():
                                                     "details_for_user"] = f"I tried to message {actual_target} but couldn't find or open the chat."
                                             else:  # Successfully opened/switched to new target's chat
                                                 active_thread_identifier = actual_target
+                                                print(
+                                                    f"INFO: Context switched to target {actual_target} for sending message.")
                                                 success_send = u2_utils.send_dm_in_open_thread(d_device, msg_to_send)
                                                 if success_send:
                                                     bot_sent_message_hashes.add(hash(msg_to_send))
                                                     _perform_back_press(d_device)  # Go back to DM list
                                                     active_thread_identifier = None  # We are no longer in actual_target's chat
+                                                    print(
+                                                        f"INFO: Returned to DM list after sending to {actual_target}. Active context reset to None.")
                                         else:  # Sending to the current active thread
                                             success_send = u2_utils.send_dm_in_open_thread(d_device, msg_to_send)
                                             if success_send:
@@ -441,12 +450,14 @@ def auto_respond_via_ui():
                                             else:
                                                 print(
                                                     f"CRITICAL ERROR: Failed to switch back to original thread {original_target_for_loop} after sending message to {actual_target}. Explanation might be lost or sent to wrong thread.")
-                                                critical_context_switch_error = True  # Set flag to skip 2nd pass
+                                                llm_args_for_second_prompt[
+                                                    "details_for_user"] = f"I've sent your requested message to {actual_target}, but encountered an issue returning to our chat to provide a full confirmation. The message to {actual_target} was attempted."
                                                 break  # out of parts loop
                                     else:
                                         llm_args_for_second_prompt[
                                             "details_for_user"] = "I was asked to send a message, but the target or message was unclear."
-
+                                    print(
+                                        f"INFO: 'details_for_user' for second LLM prompt for {llm_function_name}: {llm_args_for_second_prompt.get('details_for_user')}")
                                 elif llm_function_name == "fetch_followers_followings":
                                     target_fetch_user = llm_args_for_second_prompt.get("target_username")
                                     llm_args_for_second_prompt[
@@ -484,43 +495,83 @@ def auto_respond_via_ui():
                                 bot_instagram_username=BOT_ACTUAL_USERNAME,
                                 sender_username=sender_username_ui, message_text=actual_latest_user_message_text,
                                 thread_id=thread_identifier, function_name=llm_function_name,
-                                function_message_placeholder=function_execution_summary if llm_function_name == "notify_owner" else "",
-                                send_message_placeholder=function_execution_summary if llm_function_name == "send_message" else "",
-                                fetched_data_placeholder=function_execution_summary if llm_function_name == "fetch_followers_followings" else "",
+                                function_execution_summary=function_execution_summary,  # Consolidated placeholder
                                 sender_full_name=sender_full_name_ui, timestamp=timestamp_approx_str,
                                 sender_follower_count=sender_follower_count_ui, owner_username=OWNER_USERNAME
                             )
-                            try:
-                                response_second = chat_session.send_message(prompt_second)
-                                for part_second in response_second.parts:
-                                    if part_second.text:
-                                        user_explanation = format_message_for_llm(part_second.text.strip(),
-                                                                                  bot_display_name=BOT_DISPLAY_NAME,
-                                                                                  bot_actual_username=BOT_ACTUAL_USERNAME)
-                                        message_sent_successfully_explain = False
-                                        if active_thread_identifier and active_thread_identifier.lower() == thread_identifier.lower():  # Ensure correct thread for explanation
-                                            if u2_utils.send_dm_in_open_thread(d_device, user_explanation):
-                                                message_sent_successfully_explain = True
-                                                if message_sent_successfully_explain:
-                                                    bot_sent_message_hashes.add(hash(user_explanation))
-                                        else:  # This case should ideally be rare if context is managed well
-                                            print(
-                                                f"LLM explanation: Active thread is '{active_thread_identifier}', target is '{thread_identifier}'. Re-opening target for explanation.")
-                                            if u2_utils.open_thread_by_username(d_device, thread_identifier):
-                                                active_thread_identifier = thread_identifier
-                                                if u2_utils.send_dm_in_open_thread(d_device, user_explanation):
-                                                    message_sent_successfully_explain = True
-                                                    if message_sent_successfully_explain:
-                                                        bot_sent_message_hashes.add(hash(user_explanation))
-                                            else:
-                                                print(
-                                                    f"ERROR: Could not re-open {thread_identifier} for 2nd pass explanation. Message lost.")
 
-                                        if message_sent_successfully_explain:
-                                            _perform_back_press(d_device)
-                                            active_thread_identifier = None
-                            except Exception as e:
-                                print(f"ERROR: Gemini API (2nd pass) failed for {thread_identifier}: {e}")
+                            user_explanation = None
+                            message_sent_successfully_explain = False  # Tracks if the explanation was successfully *sent*
+
+                            print(
+                                f"INFO: Attempting second LLM call for {llm_function_name} in thread {thread_identifier}. Summary input to LLM: {function_execution_summary[:100]}...")
+                            for attempt in range(MAX_ATTEMPTS):
+                                try:
+                                    response_second = chat_session.send_message(prompt_second)
+                                    for part_second in response_second.parts:
+                                        if part_second.text:
+                                            user_explanation = format_message_for_llm(part_second.text.strip(),
+                                                                                      bot_display_name=BOT_DISPLAY_NAME,
+                                                                                      bot_actual_username=BOT_ACTUAL_USERNAME)
+                                            # Generation successful, break from retry loop
+                                    if user_explanation:  # Check if user_explanation was populated
+                                        print(
+                                            f"INFO: Successfully received explanation from second LLM for {thread_identifier} (attempt {attempt + 1}): {user_explanation[:100]}...")
+                                        break
+                                except Exception as e:
+                                    print(
+                                        f"ERROR: Gemini API (2nd pass) attempt {attempt + 1}/{MAX_ATTEMPTS} failed for {thread_identifier}: {e}")
+                                    if attempt < MAX_ATTEMPTS - 1:
+                                        time.sleep(2)  # Wait before retrying
+                                else:  # If try was successful (no exception) and user_explanation was found
+                                    if user_explanation:  # Ensure explanation was actually extracted
+                                        break
+
+                            if user_explanation is None:  # All attempts failed or no text part found
+                                print(
+                                    f"All {MAX_ATTEMPTS} attempts for Gemini API (2nd pass) failed for {thread_identifier}. Using fallback explanation.")
+                                user_explanation = f"Regarding your request: {function_execution_summary}. I tried to get a more detailed confirmation, but I'm having a little trouble generating it right now."
+                                print(
+                                    f"INFO: Using fallback explanation for {thread_identifier} as second LLM call failed all attempts. Fallback: {user_explanation[:100]}...")
+                                # message_sent_successfully_explain remains False as generation 'failed'
+
+                            # Attempt to send the user_explanation (either generated or fallback)
+                            if user_explanation:  # Ensure there's something to send
+                                message_sent_successfully_explain = False  # Initialize before attempting to send
+                                print(f"INFO: Ensuring thread '{thread_identifier}' is open to send explanation.")
+
+                                if u2_utils.open_thread_by_username(d_device, thread_identifier):
+                                    active_thread_identifier = thread_identifier  # Update active context
+                                    print(
+                                        f"INFO: Thread '{thread_identifier}' successfully opened/focused for explanation.")
+                                    print(
+                                        f"INFO: Attempting to send explanation to {thread_identifier} (current active: {active_thread_identifier}). Explanation: {user_explanation[:100]}...")
+                                    for attempt_send in range(SEND_EXPLANATION_ATTEMPTS):
+                                        if u2_utils.send_dm_in_open_thread(d_device, user_explanation):
+                                            message_sent_successfully_explain = True
+                                            bot_sent_message_hashes.add(hash(user_explanation))
+                                            print(
+                                                f"INFO: Successfully sent explanation to {thread_identifier} (attempt {attempt_send + 1}).")
+                                            break  # Exit send retry loop on success
+                                        else:
+                                            print(
+                                                f"ERROR: Failed to send explanation to {thread_identifier} (in supposedly open thread) attempt {attempt_send + 1}/{SEND_EXPLANATION_ATTEMPTS}.")
+                                            if attempt_send < SEND_EXPLANATION_ATTEMPTS - 1:
+                                                time.sleep(1)
+                                            elif attempt_send == SEND_EXPLANATION_ATTEMPTS - 1:  # Last attempt failed
+                                                print(
+                                                    f"ERROR: FINAL - Failed to send explanation to {thread_identifier} after {SEND_EXPLANATION_ATTEMPTS} attempts. Message: {user_explanation[:50]}...")
+                                else:
+                                    print(
+                                        f"ERROR: Failed to open thread '{thread_identifier}' to send explanation. Message: {user_explanation[:50]}... lost.")
+                                    # message_sent_successfully_explain remains False
+
+                            if message_sent_successfully_explain:  # Only perform back press if message was sent
+                                _perform_back_press(d_device)
+                                active_thread_identifier = None
+                            # If message sending failed, we are likely still in the original user's thread or couldn't open it.
+                            # No back press here allows subsequent error handling or cycle end to manage UI state.
+
                         elif not function_triggered_this_message:  # If it was a direct reply, no 2nd pass, so perform back press here
                             _perform_back_press(d_device)
                             active_thread_identifier = None
