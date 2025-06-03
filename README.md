@@ -24,6 +24,10 @@ Raphael (default name) is a sophisticated and autonomous digital assistant desig
 *   `view_dms`: (Owner only) View past DMs in a thread.
 *   `fetch_followers_followings`: Fetch followers and followings for an Instagram account (UI-Intensive).
 
+## 🚧 Roadmap & Tasks
+
+For a more detailed breakdown of current development tasks, planned enhancements, known issues, and ideas that go beyond the high-level "Planned Features," please refer to our [TODO.md](TODO.md) file. This provides a granular view of what's being worked on or needs attention.
+
 ## 🔭 Future Vision
 The long-term goal for Aetherion is to evolve beyond Instagram and become a comprehensive, device-wide automaton service. I envision a powerful assistant capable of:
 
