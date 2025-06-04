@@ -18,7 +18,9 @@
 
 ## 🔧 Improvements/Features
 - [ ] Split long message responses
-- [ ] Optimize system prompts 
+- [ ] Optimize system prompts
+- [ ] Allow bot to know updates made to it
+- [ ] Change bots source code without actually stopping it (Runtime edit)
 - [ ] Create an association between the name and the username of Instagram accounts 
 - [ ] Natural typing input for Instagram instead of pasting text 
 - [ ] Ollama integration
