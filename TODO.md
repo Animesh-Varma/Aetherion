@@ -11,7 +11,7 @@
     - [ ] list_threads: list all open threads (Only callable by owner)
     - [ ] view_dms: view DMs in a thread (Only callable by owner)
 - [x] Self-calling of notify_owner function by LLM without explicit mention working inconsistency
-- [x] Fix the response order of multiple unread responses
+- [x] Fix the response order of multiple unread threads
 - [x] Reliable multiple API calls for function call confirmation
 - [x] Fix message history and phrasing issues
 
