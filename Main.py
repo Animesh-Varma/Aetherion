@@ -83,7 +83,7 @@ tools = Tool(function_declarations=[
     send_message_func,
     fetch_followers_followings
 ])
-model = genai.GenerativeModel("gemini-2.0-flash", tools=tools)
+model = genai.GenerativeModel("gemini-2.5-flash-preview-05-20", tools=tools)
 
 def format_message_for_llm(template_string: str, **kwargs) -> str:
     for key, value in kwargs.items():
@@ -270,13 +270,6 @@ def auto_respond_via_ui():
                                 new_ui_messages_to_process.append(msg_ui)
                                 processed_message_ids.add(msg_ui["id"])
 
-                        elif msg_ui["id"] not in processed_message_ids and msg_ui[
-                            "user_id"].lower() != BOT_ACTUAL_USERNAME.lower():
-                            print(
-                                f"DEBUG: Message {msg_ui['id']} (stable_id: {stable_id}) from {msg_ui['user_id']} already in history by stable_id, but not in session's processed_message_ids. Adding to process queue."
-                            )
-                            new_ui_messages_to_process.append(msg_ui)
-                            processed_message_ids.add(msg_ui["id"])
 
                     last_checked_timestamps[thread_identifier] = latest_msg_timestamp_this_cycle
 
