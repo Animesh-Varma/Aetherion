@@ -3,8 +3,8 @@
 ## 🐞 Fixes
 - [ ] fetch_followers_followings is currently a stub and requires implementation.
 - [ ] Fix the response order of multiple unread responses
-- [ ] Self calling of notify_owner function by LLM without explicit mention working inconsistency (test again for confirmation)
-- [ ] Fix message history and phrasing issues 
+- [ ] Self-calling of notify_owner function by LLM without explicit mention working inconsistency (test again for confirmation)
+- [ ] Fix message history and phrasing issues
 - [ ] Reimplement functions available for Instagrapi implementation for UIAutomator2 implementation
     - [ ] pause_response: LLM/user/owner-triggered pause_response, each with different lift rules (special instance for owner)
     - [ ] resume_response: keyword-based resume_response function to resume auto response without wasting API usage 
@@ -21,6 +21,12 @@
 - [ ] Create an association between the name and the username of Instagram accounts 
 - [ ] Natural typing input for Instagram instead of pasting text 
 - [ ] Ollama integration
+- [ ] Follow/unfollow accounts
+- [ ] Implement goal decomposition for complex tasks
+- [ ] Times-based auto trigger
+- [ ] Implement API key cycling to bypass quota limits
+- [ ] Login and Logoff notification for subscribed users
+- [ ] compartmentalized with different instances for each user, owner, and function calling each with different privileges 
 
 ---
 
