@@ -636,11 +636,11 @@ def check_for_unread_dm_threads(d_device):
     Returns a list of usernames from threads marked as unread.
     """
     print("Checking for unread DM threads on current screen...")
-    unread_thread_usernames = []
+    unread_thread_usernames_set = set()  # Initialize as a set
 
     if not go_to_dm_list(d_device):  # Ensure we are on the DM list screen
         print("ERROR: Could not navigate to DM list. Cannot check for unread threads.")
-        return []
+        return []  # Return empty list as per original behavior on failure
 
     thread_container_selector = d_device(resourceId=DM_THREAD_ITEM_CONTAINER_RESID)
 
@@ -659,8 +659,8 @@ def check_for_unread_dm_threads(d_device):
                 if username_element.exists:
                     username = username_element.info.get('text')
                     if username:
-                        print(f"Found unread thread with username: {username}")
-                        unread_thread_usernames.append(username)
+                        print(f"Found unread thread with username: {username} (will add to set)")
+                        unread_thread_usernames_set.add(username)  # Adds to set
                     else:
                         print("WARN: Found unread indicator, but username element has no text.")
                 else:
@@ -668,9 +668,12 @@ def check_for_unread_dm_threads(d_device):
     else:
         print("No DM thread containers found on the screen.")
 
+    unread_thread_usernames = list(unread_thread_usernames_set)  # Convert set to list
+
     if not unread_thread_usernames:
         print("No unread DM threads found among the visible items.")
     else:
-        print(f"Finished checking. Found {len(unread_thread_usernames)} unread thread(s): {unread_thread_usernames}")
+        # Print statement to show the deduplicated list for confirmation
+        print(f"Returning unique unread thread(s): {unread_thread_usernames}")
 
     return unread_thread_usernames

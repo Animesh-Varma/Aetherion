@@ -2,8 +2,8 @@
 
 ## 🐞 Fixes
 - [ ] fetch_followers_followings is currently a stub and requires implementation.
-- [ ] Fix the response order of multiple unread responses
 - [ ] Optimize response time
+- [ ] For larger responses sent by the bot it counts them as being sent by the user
 - [ ] Reimplement functions available for Instagrapi implementation for UIAutomator2 implementation
     - [ ] pause_response: LLM/user/owner-triggered pause_response, each with different lift rules (special instance for owner)
     - [ ] resume_response: keyword-based resume_response function to resume auto response without wasting API usage 
@@ -11,6 +11,7 @@
     - [ ] list_threads: list all open threads (Only callable by owner)
     - [ ] view_dms: view DMs in a thread (Only callable by owner)
 - [x] Self-calling of notify_owner function by LLM without explicit mention working inconsistency
+- [x] Fix the response order of multiple unread responses
 - [x] Reliable multiple API calls for function call confirmation
 - [x] Fix message history and phrasing issues
 
