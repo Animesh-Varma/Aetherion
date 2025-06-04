@@ -83,12 +83,13 @@ tools = Tool(function_declarations=[
     send_message_func,
     fetch_followers_followings
 ])
-model = genai.GenerativeModel("gemini-1.5-flash-latest", tools=tools)
+model = genai.GenerativeModel("gemini-2.0-flash", tools=tools)
 
 def format_message_for_llm(template_string: str, **kwargs) -> str:
     for key, value in kwargs.items():
         template_string = template_string.replace(f"[[{key}]]", str(value))
     return template_string
+
 
 def send_message_to_owner_via_ui(message_body, original_context):
     global d_device, BOT_ACTUAL_USERNAME
@@ -123,6 +124,7 @@ def send_message_to_owner_via_ui(message_body, original_context):
         print(f"Failed to open/start DM thread with owner {OWNER_USERNAME}.")
     u2_utils.go_to_dm_list(d_device)
 
+
 def login_ui():
     global d_device, BOT_ACTUAL_USERNAME, bot_profile_info_global
     print("Attempting UI Login/Setup...")
@@ -155,11 +157,12 @@ def login_ui():
 def print_bot_user_info_ui():
     global d_device, BOT_ACTUAL_USERNAME, bot_profile_info_global
     print(f"\n--- Bot ({BOT_ACTUAL_USERNAME}) Profile Info (UI Scraped) ---")
-    print(f"  Username: {bot_profile_info_global.get('username', BOT_ACTUAL_USERNAME) if bot_profile_info_global else BOT_ACTUAL_USERNAME}")
+    print(
+        f"  Username: {bot_profile_info_global.get('username', BOT_ACTUAL_USERNAME) if bot_profile_info_global else BOT_ACTUAL_USERNAME}")
     print(f"  Full Name: {bot_profile_info_global.get('full_name', 'N/A') if bot_profile_info_global else 'N/A'}")
     print(f"  Biography: {bot_profile_info_global.get('biography', 'N/A') if bot_profile_info_global else 'N/A'}")
     print(f"  Followers: {bot_profile_info_global.get('follower_count', 'N/A') if bot_profile_info_global else 'N/A'}")
-    u2_utils.go_to_dm_list(d_device) # Return to DMs
+    u2_utils.go_to_dm_list(d_device)  # Return to DMs
 
 
 def _perform_back_press(d_device_internal, LLM_HISTORY_LENGTH=10):
@@ -387,9 +390,110 @@ def auto_respond_via_ui():
                             time.sleep(random.randint(1, 2))
                             continue
 
+                        # ---- START: Logic to fetch and process messages that arrived *during* the first LLM call ----
+
+                        # Fetch messages again (this was the previous step's goal, now moved here)
+                        print(
+                            f"INFO: Fetching messages from open thread '{active_thread_identifier}' after first LLM response (attempt).")
+                        messages_after_first_response = []
+                        # Only proceed if response_first was successfully obtained (i.e., the 'continue' in except block was not hit) and we are in an active thread
+                        if active_thread_identifier:  # response_first must exist if we didn't 'continue'
+                            messages_after_first_response = u2_utils.get_messages_from_open_thread(
+                                d_device,
+                                BOT_ACTUAL_USERNAME,
+                                bot_sent_message_hashes,
+                                max_messages=MESSAGE_FETCH_AMOUNT
+                            )
+                            if messages_after_first_response:
+                                print(
+                                    f"INFO: Fetched {len(messages_after_first_response)} messages after first response in '{active_thread_identifier}'.")
+                            else:
+                                print(
+                                    f"INFO: No messages found or error fetching messages after first response in '{active_thread_identifier}'.")
+                        else:  # not active_thread_identifier (or response_first failed, and we continued - though this path wouldn't be hit then)
+                            print(
+                                f"INFO: Skipping message fetch after first response as active_thread_identifier is None or initial LLM call failed.")
+
+                        genuinely_new_messages = []
+                        # Proceed only if we are in a thread, and messages were fetched. response_first is implied to be valid if we are here.
+                        if active_thread_identifier and messages_after_first_response:
+                            for msg_new_check in messages_after_first_response:
+                                new_stable_id = hash(
+                                    str(msg_new_check.get("user_id", "")) + str(msg_new_check.get("text", "")))
+
+                                if new_stable_id not in all_threads_history[thread_identifier][
+                                    "processed_stable_ids"] and \
+                                        msg_new_check["user_id"].lower() != BOT_ACTUAL_USERNAME.lower():
+
+                                    genuinely_new_messages.append(msg_new_check)
+                                    all_threads_history[thread_identifier]["processed_stable_ids"].add(new_stable_id)
+                                    processed_message_ids.add(msg_new_check["id"])
+
+                                    new_history_entry = {
+                                        "id": msg_new_check["id"],
+                                        "stable_id_for_history": new_stable_id,
+                                        "user_id": msg_new_check["user_id"],
+                                        "username": msg_new_check["user_id"],
+                                        "text": msg_new_check["text"],
+                                        "timestamp": msg_new_check["timestamp"].strftime("%Y-%m-%d %H:%M:%S")
+                                    }
+                                    all_threads_history[thread_identifier]["messages"].append(new_history_entry)
+                                    if msg_new_check["timestamp"] > latest_msg_timestamp_this_cycle:
+                                        latest_msg_timestamp_this_cycle = msg_new_check["timestamp"]
+
+                        # Proceed only if new messages were found. response_first is implied to be valid.
+                        if genuinely_new_messages:
+                            print(
+                                f"INFO: Found {len(genuinely_new_messages)} new messages in '{thread_identifier}' after first LLM call. Updating prompt.")
+
+                            genuinely_new_messages.sort(key=lambda m: m["timestamp"])
+
+                            additional_text_parts = [msg['text'] for msg in genuinely_new_messages]
+                            combined_new_text = "\n".join(additional_text_parts)
+
+                            actual_latest_user_message_text = f"{actual_latest_user_message_text}\n{combined_new_text}"
+
+                            print(
+                                f"INFO: Combined message text for updated LLM call: '{actual_latest_user_message_text[:100]}...'")
+
+                            prompt_first = format_message_for_llm(
+                                PROMPT_FIRST_TEMPLATE, bot_display_name=BOT_DISPLAY_NAME,
+                                bot_instagram_username=BOT_ACTUAL_USERNAME,
+                                owner_username=OWNER_USERNAME, current_date=datetime.now().strftime('%Y-%m-%d'),
+                                sender_username=sender_username_ui, thread_id=thread_identifier,
+                                sender_full_name=sender_full_name_ui,
+                                timestamp=timestamp_approx_str,
+                                sender_follower_count=sender_follower_count_ui,
+                                history_text=history_text_for_llm,
+                                message_text=actual_latest_user_message_text
+                            )
+                            print(
+                                f"INFO: Sending updated message to Gemini for {thread_identifier} from {sender_username_ui}.")
+                            try:
+                                response_first = chat_session.send_message(prompt_first)  # Re-assign response_first
+                                print(
+                                    f"INFO: Successfully received response from updated Gemini call for {thread_identifier}.")
+                            except Exception as e:
+                                print(
+                                    f"ERROR: Gemini API (updated pass) failed for {thread_identifier}: {e}. Original 'response_first' will be used.")
+
+                        # ---- END: Logic for messages arrived during first LLM call ----
+
                         function_triggered_this_message = False
                         llm_args_for_second_prompt = {}
                         llm_function_name = None
+
+                        # It's possible response_first is None if the initial call failed AND the updated call also failed or wasn't attempted.
+                        # However, the except block for the initial call has a 'continue', so this point should only be reached if response_first is valid.
+                        if response_first is None:
+                            print(
+                                f"CRITICAL: response_first is None before processing parts for {thread_identifier}. This should not happen if initial API call exception leads to 'continue'. Skipping to prevent error.")
+                            # Attempt to safely exit this iteration for the thread
+                            if active_thread_identifier and not u2_utils.return_to_dm_list_from_thread(d_device):
+                                u2_utils.go_to_dm_list(d_device)
+                            active_thread_identifier = None
+                            time.sleep(random.randint(1, 2))
+                            continue  # Skip to the next thread_identifier in unread_threads
 
                         for part in response_first.parts:
                             if part.function_call:
@@ -427,7 +531,8 @@ def auto_respond_via_ui():
                                                 active_thread_identifier = actual_target
                                                 print(
                                                     f"INFO: Context switched to target {actual_target} for sending message.")
-                                                success_send = u2_utils.send_dm_in_open_thread(d_device, message_with_sender)
+                                                success_send = u2_utils.send_dm_in_open_thread(d_device,
+                                                                                               message_with_sender)
                                                 if success_send:
                                                     bot_sent_message_hashes.add(hash(message_with_sender))
                                                     _perform_back_press(d_device)  # Go back to DM list
@@ -435,7 +540,8 @@ def auto_respond_via_ui():
                                                     print(
                                                         f"INFO: Returned to DM list after sending to {actual_target}. Active context reset to None.")
                                         else:  # Sending to the current active thread
-                                            success_send = u2_utils.send_dm_in_open_thread(d_device, message_with_sender)
+                                            success_send = u2_utils.send_dm_in_open_thread(d_device,
+                                                                                           message_with_sender)
                                             if success_send:
                                                 bot_sent_message_hashes.add(hash(message_with_sender))
                                             # No _perform_back_press here; if LLM sends multiple messages to same user, stay in thread.

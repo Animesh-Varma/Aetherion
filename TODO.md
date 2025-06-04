@@ -17,7 +17,6 @@
 
 ## 🔧 Improvements/Features
 - [ ] Split long message responses
-- [ ] Check for new messages before sending a response from the API
 - [ ] Create an association between the name and the username of Instagram accounts 
 - [ ] Natural typing input for Instagram instead of pasting text 
 - [ ] Ollama integration
@@ -27,6 +26,7 @@
 - [ ] Implement API key cycling to bypass quota limits
 - [ ] Login and Logoff notification for subscribed users
 - [ ] compartmentalized with different instances for each user, owner, and function calling each with different privileges 
+- [x] Check for new messages before sending a response from the API
 
 ---
 
