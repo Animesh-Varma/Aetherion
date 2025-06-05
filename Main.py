@@ -78,6 +78,12 @@ fetch_followers_followings = FunctionDeclaration(
     }
 )
 
+PRE_CALL_TEMPLATES = {
+    "notify_owner": "Greetings, {sender_username}. I am taking a moment to notify my owner, {owner_username}. I'll let you know once this is completed.",
+    "send_message": "Greetings, {sender_username}. I'm preparing to send your message '{message_preview}' to '{target_username_or_thread_id}'. I'll confirm once sent.",
+    "fetch_followers_followings": "Greetings, {sender_username}. I'm about to start fetching follower/following information for '{target_username}'. This might take a moment. I'll let you know when I have the results."
+}
+
 tools = Tool(function_declarations=[
     notify_owner_func,
     send_message_func,
@@ -269,7 +275,6 @@ def auto_respond_via_ui():
                             if msg_ui["user_id"].lower() != BOT_ACTUAL_USERNAME.lower():
                                 new_ui_messages_to_process.append(msg_ui)
                                 processed_message_ids.add(msg_ui["id"])
-
 
                     last_checked_timestamps[thread_identifier] = latest_msg_timestamp_this_cycle
 
@@ -497,6 +502,68 @@ def auto_respond_via_ui():
                                 print(
                                     f"LLM requested function: {llm_function_name} with args: {llm_args_for_second_prompt}")
 
+                                # --- Send Pre-call Notification (Locally Formatted) ---
+                                try:
+                                    pre_call_notification_text = None
+                                    template = PRE_CALL_TEMPLATES.get(llm_function_name)
+                                    args = llm_args_for_second_prompt
+
+                                    if template:
+                                        format_args = {
+                                            "sender_username": sender_username_ui,
+                                            "owner_username": OWNER_USERNAME
+                                        }
+                                        # notify_owner template no longer uses message_preview
+                                        if llm_function_name == "send_message":
+                                            msg_content = args.get('message', '')
+                                            format_args["message_preview"] = msg_content[:30] + '...' if len(
+                                                msg_content) > 30 else msg_content
+                                            format_args["target_username_or_thread_id"] = args.get(
+                                                'target_username') or args.get('thread_id', 'the current chat')
+                                        elif llm_function_name == "fetch_followers_followings":
+                                            format_args["target_username"] = args.get('target_username',
+                                                                                      'the specified user')
+
+                                        pre_call_notification_text = template.format(**format_args)
+                                    else:
+                                        # Fallback message
+                                        pre_call_notification_text = f"I am about to perform the action '{llm_function_name}' with arguments: {str(args)}."
+                                        print(
+                                            f"WARN: No pre-call template found for function '{llm_function_name}'. Using fallback.")
+
+                                    if pre_call_notification_text:
+                                        print(
+                                            f"Locally formatted pre-call notification for {thread_identifier}: {pre_call_notification_text[:100]}...")
+                                        if active_thread_identifier and active_thread_identifier.lower() == thread_identifier.lower():
+                                            if u2_utils.send_dm_in_open_thread(d_device, pre_call_notification_text):
+                                                bot_sent_message_hashes.add(hash(pre_call_notification_text))
+                                                print(
+                                                    f"Successfully sent pre-call notification to {thread_identifier}.")
+                                            else:
+                                                print(
+                                                    f"ERROR: Failed to send pre-call notification to {thread_identifier} in open thread.")
+                                        else:
+                                            # This case should ideally not be hit if context is managed well before this point for function calls.
+                                            print(
+                                                f"WARN: Pre-call: Active thread '{active_thread_identifier}' differs from target '{thread_identifier}'. Attempting to open target for pre-call message.")
+                                            if u2_utils.open_thread_by_username(d_device, thread_identifier):
+                                                active_thread_identifier = thread_identifier  # Update active context
+                                                if u2_utils.send_dm_in_open_thread(d_device,
+                                                                                   pre_call_notification_text):
+                                                    bot_sent_message_hashes.add(hash(pre_call_notification_text))
+                                                    print(
+                                                        f"Successfully sent pre-call notification to {thread_identifier} after reopening.")
+                                                else:
+                                                    print(
+                                                        f"ERROR: Failed to send pre-call notification to {thread_identifier} after reopening.")
+                                            else:
+                                                print(
+                                                    f"ERROR: Could not open {thread_identifier} to send pre-call notification. Notification lost.")
+                                except Exception as e_pre_call:
+                                    print(
+                                        f"ERROR: Failed to format or send local pre-call notification for {thread_identifier}: {e_pre_call}")
+                                    # Continue with function execution even if pre-call notification fails
+
                                 # --- Handle Function Calls via UI ---
                                 if llm_function_name == "notify_owner":
                                     original_ctx = {"thread_id": thread_identifier,
@@ -515,6 +582,13 @@ def auto_respond_via_ui():
                                     success_send = False
                                     if msg_to_send and actual_target:
                                         message_with_sender = f"{sender_username_ui}: {msg_to_send}"
+                                        # If the message that triggered this 'send_message' action is from the OWNER_USERNAME,
+                                        # then the bot should send the message as itself, without prefixing the owner's name.
+                                        if sender_username_ui.lower() == OWNER_USERNAME.lower():
+                                            message_to_actually_send = msg_to_send # Send as bot
+                                        else:
+                                            message_to_actually_send = f"{sender_username_ui}: {msg_to_send}" # Prepend sender for non-owner initiated messages
+
                                         if actual_target.lower() != active_thread_identifier.lower():  # Sending to a different user/thread
                                             if not u2_utils.search_and_open_dm_with_user(d_device, actual_target,
                                                                                          BOT_ACTUAL_USERNAME):
@@ -525,7 +599,7 @@ def auto_respond_via_ui():
                                                 print(
                                                     f"INFO: Context switched to target {actual_target} for sending message.")
                                                 success_send = u2_utils.send_dm_in_open_thread(d_device,
-                                                                                               message_with_sender)
+                                                                                               message_to_actually_send)  # Use modified variable
                                                 if success_send:
                                                     bot_sent_message_hashes.add(hash(message_with_sender))
                                                     _perform_back_press(d_device)  # Go back to DM list
@@ -534,9 +608,10 @@ def auto_respond_via_ui():
                                                         f"INFO: Returned to DM list after sending to {actual_target}. Active context reset to None.")
                                         else:  # Sending to the current active thread
                                             success_send = u2_utils.send_dm_in_open_thread(d_device,
-                                                                                           message_with_sender)
+                                                                                           message_to_actually_send)  # Use modified variable
                                             if success_send:
-                                                bot_sent_message_hashes.add(hash(message_with_sender))
+                                                bot_sent_message_hashes.add(
+                                                    hash(message_to_actually_send))  # Use modified variable
                                             # No _perform_back_press here; if LLM sends multiple messages to same user, stay in thread.
                                             # The final _perform_back_press for the 2nd pass explanation will handle exiting.
 
@@ -590,7 +665,7 @@ def auto_respond_via_ui():
                                         active_thread_identifier = thread_identifier
                                         if u2_utils.send_dm_in_open_thread(d_device, reply_text):
                                             message_sent_successfully = True
-                                            bot_sent_message_hashes.add(hash(reply_text)) # Add hash here too
+                                            bot_sent_message_hashes.add(hash(reply_text))  # Add hash here too
                                     else:
                                         print(
                                             f"ERROR: Could not re-open {thread_identifier} to send LLM direct reply. Message lost.")
