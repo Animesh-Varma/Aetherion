@@ -20,7 +20,9 @@
 
 ## 🔧 Improvements/Features
 - [ ] Split long message responses
+- [ ] Add multi-modal capabilities
 - [ ] Accept message requests
+- [ ] Inter-thread communication and response tone memory 
 - [ ] If an error is encountered, share all visible elements with LLM for possible troubleshooting and situational awareness 
 - [ ] Optimize system prompts
 - [ ] Upgrade from Google.generativeai to python-genai (Before August 31st, 2025) 
