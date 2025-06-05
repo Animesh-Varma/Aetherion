@@ -582,8 +582,7 @@ def auto_respond_via_ui():
                                 if active_thread_identifier and active_thread_identifier.lower() == thread_identifier.lower():
                                     if u2_utils.send_dm_in_open_thread(d_device, reply_text):
                                         message_sent_successfully = True
-                                        if message_sent_successfully:
-                                            bot_sent_message_hashes.add(hash(reply_text))
+                                        bot_sent_message_hashes.add(hash(reply_text))
                                 else:  # Should not happen if send_message context switch is handled correctly
                                     print(
                                         f"LLM direct reply: Active thread is '{active_thread_identifier}', target is '{thread_identifier}'. Re-opening target.")
@@ -591,6 +590,7 @@ def auto_respond_via_ui():
                                         active_thread_identifier = thread_identifier
                                         if u2_utils.send_dm_in_open_thread(d_device, reply_text):
                                             message_sent_successfully = True
+                                            bot_sent_message_hashes.add(hash(reply_text)) # Add hash here too
                                     else:
                                         print(
                                             f"ERROR: Could not re-open {thread_identifier} to send LLM direct reply. Message lost.")

@@ -287,13 +287,15 @@ def get_messages_from_open_thread(d, bot_username, bot_sent_message_hashes, max_
                     sender_ui_name = bot_username  # Verified self-sent
                 elif explicit_sender_name and explicit_sender_name.lower() == bot_username.lower():
                     # If explicit name matches bot, and not caught by hash (e.g. old message)
+                    # This case handles group chats where the bot's name is explicitly shown.
                     sender_ui_name = bot_username
                 elif explicit_sender_name:
-                    sender_ui_name = explicit_sender_name  # Group chat message from another user
-                elif is_outgoing:
-                    sender_ui_name = bot_username  # UI heuristic for bot's message
-                else:
-                    sender_ui_name = peer_username  # Default to peer
+                    # This means it's a group chat message from another user (not the bot)
+                    sender_ui_name = explicit_sender_name
+                elif is_outgoing: # This is a non-group-chat message, positioned as if sent by the bot
+                    sender_ui_name = bot_username  # UI heuristic for bot's own message
+                else: # Non-group-chat message, not positioned as outgoing, so assume it's from the peer
+                    sender_ui_name = peer_username
 
                 current_screen_messages.append({
                     "id": msg_hash,  # Unique ID for this scraped instance of the message
