@@ -123,6 +123,7 @@ def send_message_to_owner_via_ui(message_body, original_context):
     print(f"Attempting to send to owner ({OWNER_USERNAME}) via UI: {full_message_to_owner[:100]}...")
     if u2_utils.search_and_open_dm_with_user(d_device, OWNER_USERNAME, BOT_ACTUAL_USERNAME):
         if u2_utils.send_dm_in_open_thread(d_device, full_message_to_owner):
+            bot_sent_message_hashes.add(hash(full_message_to_owner.strip())) # Verified
             print(f"Message sent to owner {OWNER_USERNAME} via UI.")
         else:
             print(f"Failed to type/send DM content to owner {OWNER_USERNAME}.")
@@ -309,7 +310,7 @@ def auto_respond_via_ui():
                                 auto_responding[thread_identifier] = True
                                 resume_message = f"{BOT_DISPLAY_NAME}: Auto-response R E S U M E D for {thread_identifier}."
                                 if u2_utils.send_dm_in_open_thread(d_device, resume_message):
-                                    bot_sent_message_hashes.add(hash(resume_message))
+                                    bot_sent_message_hashes.add(hash(resume_message.strip())) # Verified
                                     _perform_back_press(d_device)
                                     active_thread_identifier = None
                                 print(
@@ -536,7 +537,7 @@ def auto_respond_via_ui():
                                             f"Locally formatted pre-call notification for {thread_identifier}: {pre_call_notification_text[:100]}...")
                                         if active_thread_identifier and active_thread_identifier.lower() == thread_identifier.lower():
                                             if u2_utils.send_dm_in_open_thread(d_device, pre_call_notification_text):
-                                                bot_sent_message_hashes.add(hash(pre_call_notification_text))
+                                                bot_sent_message_hashes.add(hash(pre_call_notification_text.strip())) # Verified
                                                 print(
                                                     f"Successfully sent pre-call notification to {thread_identifier}.")
                                             else:
@@ -550,7 +551,7 @@ def auto_respond_via_ui():
                                                 active_thread_identifier = thread_identifier  # Update active context
                                                 if u2_utils.send_dm_in_open_thread(d_device,
                                                                                    pre_call_notification_text):
-                                                    bot_sent_message_hashes.add(hash(pre_call_notification_text))
+                                                    bot_sent_message_hashes.add(hash(pre_call_notification_text.strip())) # Verified
                                                     print(
                                                         f"Successfully sent pre-call notification to {thread_identifier} after reopening.")
                                                 else:
@@ -601,7 +602,7 @@ def auto_respond_via_ui():
                                                 success_send = u2_utils.send_dm_in_open_thread(d_device,
                                                                                                message_to_actually_send)  # Use modified variable
                                                 if success_send:
-                                                    bot_sent_message_hashes.add(hash(message_with_sender))
+                                                    bot_sent_message_hashes.add(hash(message_to_actually_send.strip())) # Verified - use actual sent text
                                                     _perform_back_press(d_device)  # Go back to DM list
                                                     active_thread_identifier = None  # We are no longer in actual_target's chat
                                                     print(
@@ -610,8 +611,7 @@ def auto_respond_via_ui():
                                             success_send = u2_utils.send_dm_in_open_thread(d_device,
                                                                                            message_to_actually_send)  # Use modified variable
                                             if success_send:
-                                                bot_sent_message_hashes.add(
-                                                    hash(message_to_actually_send))  # Use modified variable
+                                                bot_sent_message_hashes.add(hash(message_to_actually_send.strip())) # Verified
                                             # No _perform_back_press here; if LLM sends multiple messages to same user, stay in thread.
                                             # The final _perform_back_press for the 2nd pass explanation will handle exiting.
 
@@ -657,7 +657,7 @@ def auto_respond_via_ui():
                                 if active_thread_identifier and active_thread_identifier.lower() == thread_identifier.lower():
                                     if u2_utils.send_dm_in_open_thread(d_device, reply_text):
                                         message_sent_successfully = True
-                                        bot_sent_message_hashes.add(hash(reply_text))
+                                        bot_sent_message_hashes.add(hash(reply_text.strip())) # Verified
                                 else:  # Should not happen if send_message context switch is handled correctly
                                     print(
                                         f"LLM direct reply: Active thread is '{active_thread_identifier}', target is '{thread_identifier}'. Re-opening target.")
@@ -665,7 +665,7 @@ def auto_respond_via_ui():
                                         active_thread_identifier = thread_identifier
                                         if u2_utils.send_dm_in_open_thread(d_device, reply_text):
                                             message_sent_successfully = True
-                                            bot_sent_message_hashes.add(hash(reply_text))  # Add hash here too
+                                            bot_sent_message_hashes.add(hash(reply_text.strip())) # Verified
                                     else:
                                         print(
                                             f"ERROR: Could not re-open {thread_identifier} to send LLM direct reply. Message lost.")
@@ -733,7 +733,7 @@ def auto_respond_via_ui():
                                     for attempt_send in range(SEND_EXPLANATION_ATTEMPTS):
                                         if u2_utils.send_dm_in_open_thread(d_device, user_explanation):
                                             message_sent_successfully_explain = True
-                                            bot_sent_message_hashes.add(hash(user_explanation))
+                                            bot_sent_message_hashes.add(hash(user_explanation.strip())) # Verified
                                             print(
                                                 f"INFO: Successfully sent explanation to {thread_identifier} (attempt {attempt_send + 1}).")
                                             break  # Exit send retry loop on success

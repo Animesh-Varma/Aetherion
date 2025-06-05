@@ -106,7 +106,7 @@ The bot will attempt to connect to the device, open Instagram, and start monitor
 ## 🛠️ Built With
 
 *   [uiautomator2](https://github.com/openatx/uiautomator2) - For Android UI Automation.
-*   google-generativeai - For AI-powered responses.
+*   [google-generativeai](https://github.com/google-gemini/deprecated-generative-ai-python) - For AI-powered responses.
 
 ## 👤 Creator
 

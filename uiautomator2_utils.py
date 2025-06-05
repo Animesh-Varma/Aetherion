@@ -18,7 +18,6 @@ PROFILE_TAB_RESID = "com.instagram.android:id/profile_tab"
 DM_INBOX_ICON_RESID = "com.instagram.android:id/action_bar_inbox_button"
 DM_LIST_HEADER_TEXT_RESID = "com.instagram.android:id/action_bar_title_subtitle_container"  # Contains username/title
 DM_LIST_SEARCH_ACTIVATION_ELEMENT_RESID = "com.instagram.android:id/animated_hints_text_layout"  # Text like "Search"
-# TODO: Verify DM_LIST_SEARCH_INPUT_FIELD_RESID and DM_LIST_ACTUAL_SEARCH_EDITTEXT_RESID are correct and distinct if needed.
 DM_LIST_SEARCH_INPUT_FIELD_RESID = "com.instagram.android:id/row_thread_composer_edittext"
 DM_LIST_ACTUAL_SEARCH_EDITTEXT_RESID = "com.instagram.android:id/row_thread_composer_edittext"
 
@@ -271,7 +270,7 @@ def get_messages_from_open_thread(d, bot_username, bot_sent_message_hashes, max_
 
                 screen_width = d.window_size()[0]
                 text = text_el.info['text']
-                msg_hash_for_tracking = hash(text)  # Calculate hash of the text content
+                msg_hash_for_tracking = hash(text.strip())  # Calculate hash of the text content, normalized
 
                 # Heuristic: outgoing messages (sent by bot) are usually on the right half.
                 is_outgoing = bubble.info['bounds']['left'] > screen_width / 3
@@ -283,19 +282,23 @@ def get_messages_from_open_thread(d, bot_username, bot_sent_message_hashes, max_
                 if explicit_sender_name_el.exists:
                     explicit_sender_name = explicit_sender_name_el.info['text']
 
+                # 1. Primary Check: bot_sent_message_hashes
                 if msg_hash_for_tracking in bot_sent_message_hashes:
-                    sender_ui_name = bot_username  # Verified self-sent
-                elif explicit_sender_name and explicit_sender_name.lower() == bot_username.lower():
-                    # If explicit name matches bot, and not caught by hash (e.g. old message)
-                    # This case handles group chats where the bot's name is explicitly shown.
                     sender_ui_name = bot_username
+                # 2. Secondary Check: Explicit Sender Name (Group Chats)
                 elif explicit_sender_name:
-                    # This means it's a group chat message from another user (not the bot)
-                    sender_ui_name = explicit_sender_name
-                elif is_outgoing: # This is a non-group-chat message, positioned as if sent by the bot
-                    sender_ui_name = bot_username  # UI heuristic for bot's own message
-                else: # Non-group-chat message, not positioned as outgoing, so assume it's from the peer
-                    sender_ui_name = peer_username
+                    if explicit_sender_name.lower() == bot_username.lower():
+                        sender_ui_name = bot_username  # Group chat, and it's the bot
+                    else:
+                        sender_ui_name = explicit_sender_name  # Group chat, another user
+                # 3. Tertiary Check: Positional Heuristic (is_outgoing)
+                #    Only use if not bot by hash and not an explicit sender (i.e., explicit_sender_name is None)
+                elif is_outgoing: # and explicit_sender_name is None (implicitly handled by elif)
+                    sender_ui_name = bot_username  # UI heuristic for bot's own message (fallback)
+                # 4. Default
+                else:
+                    # Not in hashes, no explicit name (or explicit name was not bot), not positioned as outgoing
+                    sender_ui_name = peer_username  # Assume it's from the peer
 
                 current_screen_messages.append({
                     "id": msg_hash,  # Unique ID for this scraped instance of the message
