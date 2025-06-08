@@ -20,8 +20,10 @@ BLUE_DOT_CHECK_INTERVAL = int(os.getenv("BLUE_DOT_CHECK_INTERVAL", "5"))
 # --- Thread Pause Settings ---
 THREAD_PAUSE_KEYWORD = os.getenv("THREAD_PAUSE_KEYWORD", "/pause_chat")
 THREAD_RESUME_KEYWORD = os.getenv("THREAD_RESUME_KEYWORD", "/resume_chat")
-THREAD_PAUSE_CONFIRMATION_MESSAGE = os.getenv("THREAD_PAUSE_CONFIRMATION_MESSAGE", "{BOT_DISPLAY_NAME}: Auto-responses have been PAUSED for this chat. Send '{THREAD_RESUME_KEYWORD}' to resume.")
-THREAD_RESUME_CONFIRMATION_MESSAGE = os.getenv("THREAD_RESUME_CONFIRMATION_MESSAGE", "{BOT_DISPLAY_NAME}: Auto-responses have been RESUMED for this chat.")
+
+# --- Owner Remote Thread Control Settings ---
+OWNER_REMOTE_PAUSE_KEYWORD = os.getenv("OWNER_REMOTE_PAUSE_KEYWORD", "/owner_pause_thread")
+OWNER_REMOTE_RESUME_KEYWORD = os.getenv("OWNER_REMOTE_RESUME_KEYWORD", "/owner_resume_thread")
 
 # --- Prompt Templates for Gemini ---
 PROMPT_FIRST_TEMPLATE = """
