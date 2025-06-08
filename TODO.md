@@ -5,7 +5,6 @@
 - [ ] Reimplement functions available for Instagrapi implementation for UIAutomator2 implementation
     - [ ] pause_response: LLM/user/owner-triggered pause_response, each with different lift rules (special instance for owner)
     - [ ] resume_response: keyword-based resume_response function to resume auto response without wasting API usage 
-    - [ ] target_thread: Select thread for manual function calls (Only callable by owner)
     - [ ] list_threads: list all open threads (Only callable by owner)
     - [ ] view_dms: view DMs in a thread (Only callable by owner)
     - [ ] fetch_followers_followings: fetch followers and followings of any given account if visible to bot (currently a stub)

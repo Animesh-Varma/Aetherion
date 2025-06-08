@@ -6,7 +6,9 @@ from datetime import datetime, timedelta
 
 from config import (API_KEY, OWNER_USERNAME, PROMPT_FIRST_TEMPLATE, PROMPT_SECOND_TEMPLATE,
                     bot_instagram_username, BOT_DISPLAY_NAME, MESSAGE_FETCH_AMOUNT,
-                    MIN_SLEEP_TIME, MAX_SLEEP_TIME, BLUE_DOT_CHECK_INTERVAL, DEVICE_IDENTIFIER
+                    MIN_SLEEP_TIME, MAX_SLEEP_TIME, BLUE_DOT_CHECK_INTERVAL, DEVICE_IDENTIFIER,
+                    THREAD_PAUSE_KEYWORD, THREAD_RESUME_KEYWORD, THREAD_PAUSE_CONFIRMATION_MESSAGE,
+                    THREAD_RESUME_CONFIRMATION_MESSAGE
                     )
 import google.generativeai as genai
 from google.generativeai.types import FunctionDeclaration, Tool
@@ -78,18 +80,35 @@ fetch_followers_followings = FunctionDeclaration(
     }
 )
 
+trigger_thread_pause_func = FunctionDeclaration(
+    name="trigger_thread_pause",
+    description="Pauses bot responses specifically for the current conversation thread. The bot will stop sending messages in this thread until a resume keyword is received from the user in this thread. Use this if the conversation context suggests the user in this thread wants a temporary halt or if the bot needs to stop responding in this specific thread for some reason.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "reason": {"type": "string",
+                       "description": "Optional reason for pausing, which can be relayed to the user in this thread."}
+            # thread_id could be an implicit parameter based on current context, or explicitly passed if needed.
+            # For now, assume it operates on the current thread_identifier.
+        }
+    }
+)
+
 PRE_CALL_TEMPLATES = {
     "notify_owner": "Greetings, {sender_username}. I am taking a moment to notify my owner, {owner_username}. I'll let you know once this is completed.",
     "send_message": "Greetings, {sender_username}. I'm preparing to send your message '{message_preview}' to '{target_username_or_thread_id}'. I'll confirm once sent.",
-    "fetch_followers_followings": "Greetings, {sender_username}. I'm about to start fetching follower/following information for '{target_username}'. This might take a moment. I'll let you know when I have the results."
+    "fetch_followers_followings": "Greetings, {sender_username}. I'm about to start fetching follower/following information for '{target_username}'. This might take a moment. I'll let you know when I have the results.",
+    "trigger_thread_pause": "Understood, {sender_username}. I am now pausing my responses in this specific chat. I'll let you know once this is active."
 }
 
 tools = Tool(function_declarations=[
     notify_owner_func,
     send_message_func,
-    fetch_followers_followings
+    fetch_followers_followings,
+    trigger_thread_pause_func
 ])
 model = genai.GenerativeModel("gemini-2.5-flash-preview-05-20", tools=tools)
+
 
 def format_message_for_llm(template_string: str, **kwargs) -> str:
     for key, value in kwargs.items():
@@ -123,7 +142,7 @@ def send_message_to_owner_via_ui(message_body, original_context):
     print(f"Attempting to send to owner ({OWNER_USERNAME}) via UI: {full_message_to_owner[:100]}...")
     if u2_utils.search_and_open_dm_with_user(d_device, OWNER_USERNAME, BOT_ACTUAL_USERNAME):
         if u2_utils.send_dm_in_open_thread(d_device, full_message_to_owner):
-            bot_sent_message_hashes.add(hash(full_message_to_owner.strip())) # Verified
+            bot_sent_message_hashes.add(hash(full_message_to_owner.strip()))  # Verified
             print(f"Message sent to owner {OWNER_USERNAME} via UI.")
         else:
             print(f"Failed to type/send DM content to owner {OWNER_USERNAME}.")
@@ -303,14 +322,98 @@ def auto_respond_via_ui():
                         print(
                             f"Processing batch of {len(new_ui_messages_to_process)} new UI DMs in {thread_identifier} from {sender_username_ui}. Latest message: {actual_latest_user_message_text[:100]}...")
 
+                        user_command_processed = False  # Flag to indicate if the message was a command
+
+                        # Check for THREAD_PAUSE_KEYWORD
+                        if actual_latest_user_message_text.strip().lower() == THREAD_PAUSE_KEYWORD.lower():
+                            print(
+                                f"Thread pause keyword '{THREAD_PAUSE_KEYWORD}' received in thread {thread_identifier} from {sender_username_ui}.")
+                            auto_responding[thread_identifier] = False
+
+                            confirmation_text = THREAD_PAUSE_CONFIRMATION_MESSAGE.format(
+                                BOT_DISPLAY_NAME=BOT_DISPLAY_NAME,
+                                THREAD_RESUME_KEYWORD=THREAD_RESUME_KEYWORD
+                            )
+
+                            if active_thread_identifier and active_thread_identifier.lower() == thread_identifier.lower():
+                                if u2_utils.send_dm_in_open_thread(d_device, confirmation_text):
+                                    bot_sent_message_hashes.add(hash(confirmation_text.strip()))
+                                    # Add to history
+                                    history_entry_confirm = {
+                                        "id": hash(confirmation_text), "stable_id_for_history": hash(confirmation_text),
+                                        "user_id": BOT_ACTUAL_USERNAME, "username": BOT_ACTUAL_USERNAME,
+                                        "text": confirmation_text,
+                                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                    }
+                                    all_threads_history[thread_identifier]["messages"].append(history_entry_confirm)
+                                    all_threads_history[thread_identifier]["processed_stable_ids"].add(
+                                        hash(confirmation_text))
+                                    print(f"Sent thread pause confirmation to {thread_identifier}.")
+                                else:
+                                    print(f"Failed to send thread pause confirmation to {thread_identifier}.")
+                            else:  # Should ideally not happen if active_thread_identifier is managed well
+                                print(
+                                    f"WARN: Context issue sending pause confirmation to {thread_identifier}. Active: {active_thread_identifier}")
+
+                            user_command_processed = True
+
+                        # Check for THREAD_RESUME_KEYWORD (only if not already processed as a pause command)
+                        elif actual_latest_user_message_text.strip().lower() == THREAD_RESUME_KEYWORD.lower():
+                            print(
+                                f"Thread resume keyword '{THREAD_RESUME_KEYWORD}' received in thread {thread_identifier} from {sender_username_ui}.")
+                            auto_responding[thread_identifier] = True  # Ensure it's set to True
+
+                            confirmation_text = THREAD_RESUME_CONFIRMATION_MESSAGE.format(
+                                BOT_DISPLAY_NAME=BOT_DISPLAY_NAME)
+
+                            if active_thread_identifier and active_thread_identifier.lower() == thread_identifier.lower():
+                                if u2_utils.send_dm_in_open_thread(d_device, confirmation_text):
+                                    bot_sent_message_hashes.add(hash(confirmation_text.strip()))
+                                    # Add to history
+                                    history_entry_confirm = {
+                                        "id": hash(confirmation_text), "stable_id_for_history": hash(confirmation_text),
+                                        "user_id": BOT_ACTUAL_USERNAME, "username": BOT_ACTUAL_USERNAME,
+                                        "text": confirmation_text,
+                                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                    }
+                                    all_threads_history[thread_identifier]["messages"].append(history_entry_confirm)
+                                    all_threads_history[thread_identifier]["processed_stable_ids"].add(
+                                        hash(confirmation_text))
+                                    print(f"Sent thread resume confirmation to {thread_identifier}.")
+                                else:
+                                    print(f"Failed to send thread resume confirmation to {thread_identifier}.")
+                            else:  # Should ideally not happen
+                                print(
+                                    f"WARN: Context issue sending resume confirmation to {thread_identifier}. Active: {active_thread_identifier}")
+
+                            user_command_processed = True
+
+                        if user_command_processed:
+                            # Mark all messages in new_ui_messages_to_process as processed to prevent LLM call for the command
+                            for msg_data_item in new_ui_messages_to_process:
+                                processed_message_ids.add(msg_data_item["id"])
+                                stable_id_cmd = hash(
+                                    str(msg_data_item.get("user_id", "")) + str(msg_data_item.get("text", "")))
+                                all_threads_history[thread_identifier]["processed_stable_ids"].add(stable_id_cmd)
+
+                            last_checked_timestamps[thread_identifier] = latest_msg_timestamp_this_cycle
+
+                            # If a command was processed, we might want to skip the rest of the loop for this thread iteration (LLM calls etc.)
+                            # Ensure we return to DM list and go to the next thread or cycle.
+                            if active_thread_identifier and not u2_utils.return_to_dm_list_from_thread(d_device):
+                                u2_utils.go_to_dm_list(d_device)
+                            active_thread_identifier = None  # Reset active thread as we are done with this one for now
+                            time.sleep(random.randint(1, 2))  # Brief pause
+                            continue  # Continue to the next thread_identifier in unread_threads
+
                         if not auto_responding.get(thread_identifier, True):
                             if last_message_data["text"] and any(
                                     k_word in last_message_data["text"].lower() for k_word in
-                                    ["resume", "start", "unpause"]):
+                                    ["resume", "start", "unpause", {THREAD_RESUME_KEYWORD}]):
                                 auto_responding[thread_identifier] = True
                                 resume_message = f"{BOT_DISPLAY_NAME}: Auto-response R E S U M E D for {thread_identifier}."
                                 if u2_utils.send_dm_in_open_thread(d_device, resume_message):
-                                    bot_sent_message_hashes.add(hash(resume_message.strip())) # Verified
+                                    bot_sent_message_hashes.add(hash(resume_message.strip()))  # Verified
                                     _perform_back_press(d_device)
                                     active_thread_identifier = None
                                 print(
@@ -537,7 +640,8 @@ def auto_respond_via_ui():
                                             f"Locally formatted pre-call notification for {thread_identifier}: {pre_call_notification_text[:100]}...")
                                         if active_thread_identifier and active_thread_identifier.lower() == thread_identifier.lower():
                                             if u2_utils.send_dm_in_open_thread(d_device, pre_call_notification_text):
-                                                bot_sent_message_hashes.add(hash(pre_call_notification_text.strip())) # Verified
+                                                bot_sent_message_hashes.add(
+                                                    hash(pre_call_notification_text.strip()))  # Verified
                                                 print(
                                                     f"Successfully sent pre-call notification to {thread_identifier}.")
                                             else:
@@ -551,7 +655,8 @@ def auto_respond_via_ui():
                                                 active_thread_identifier = thread_identifier  # Update active context
                                                 if u2_utils.send_dm_in_open_thread(d_device,
                                                                                    pre_call_notification_text):
-                                                    bot_sent_message_hashes.add(hash(pre_call_notification_text.strip())) # Verified
+                                                    bot_sent_message_hashes.add(
+                                                        hash(pre_call_notification_text.strip()))  # Verified
                                                     print(
                                                         f"Successfully sent pre-call notification to {thread_identifier} after reopening.")
                                                 else:
@@ -586,9 +691,9 @@ def auto_respond_via_ui():
                                         # If the message that triggered this 'send_message' action is from the OWNER_USERNAME,
                                         # then the bot should send the message as itself, without prefixing the owner's name.
                                         if sender_username_ui.lower() == OWNER_USERNAME.lower():
-                                            message_to_actually_send = msg_to_send # Send as bot
+                                            message_to_actually_send = msg_to_send  # Send as bot
                                         else:
-                                            message_to_actually_send = f"{sender_username_ui}: {msg_to_send}" # Prepend sender for non-owner initiated messages
+                                            message_to_actually_send = f"{sender_username_ui}: {msg_to_send}"  # Prepend sender for non-owner initiated messages
 
                                         if actual_target.lower() != active_thread_identifier.lower():  # Sending to a different user/thread
                                             if not u2_utils.search_and_open_dm_with_user(d_device, actual_target,
@@ -602,7 +707,8 @@ def auto_respond_via_ui():
                                                 success_send = u2_utils.send_dm_in_open_thread(d_device,
                                                                                                message_to_actually_send)  # Use modified variable
                                                 if success_send:
-                                                    bot_sent_message_hashes.add(hash(message_to_actually_send.strip())) # Verified - use actual sent text
+                                                    bot_sent_message_hashes.add(hash(
+                                                        message_to_actually_send.strip()))  # Verified - use actual sent text
                                                     _perform_back_press(d_device)  # Go back to DM list
                                                     active_thread_identifier = None  # We are no longer in actual_target's chat
                                                     print(
@@ -611,7 +717,8 @@ def auto_respond_via_ui():
                                             success_send = u2_utils.send_dm_in_open_thread(d_device,
                                                                                            message_to_actually_send)  # Use modified variable
                                             if success_send:
-                                                bot_sent_message_hashes.add(hash(message_to_actually_send.strip())) # Verified
+                                                bot_sent_message_hashes.add(
+                                                    hash(message_to_actually_send.strip()))  # Verified
                                             # No _perform_back_press here; if LLM sends multiple messages to same user, stay in thread.
                                             # The final _perform_back_press for the 2nd pass explanation will handle exiting.
 
@@ -647,6 +754,26 @@ def auto_respond_via_ui():
                                     llm_args_for_second_prompt[
                                         "details_for_user"] = f"Fetching followers/followings for {target_fetch_user} via UI is complex and slow. This feature is currently stubbed for UI automation."
                                     print(f"STUB: UI fetch_followers_followings for {target_fetch_user}")
+                                elif llm_function_name == "trigger_thread_pause":
+                                    if thread_identifier:  # Ensure thread_identifier is available
+                                        auto_responding[thread_identifier] = False
+                                        reason = llm_args_for_second_prompt.get("reason",
+                                                                                "no specific reason provided.")
+
+                                        # Prepare the message for the user for PROMPT_SECOND_TEMPLATE
+                                        pause_details_for_user = THREAD_PAUSE_CONFIRMATION_MESSAGE.format(
+                                            BOT_DISPLAY_NAME=BOT_DISPLAY_NAME,
+                                            THREAD_RESUME_KEYWORD=THREAD_RESUME_KEYWORD
+                                        )
+                                        llm_args_for_second_prompt[
+                                            "details_for_user"] = f"I am now pausing auto-responses in this chat. {pause_details_for_user} The reason given was: {reason}"
+                                        print(
+                                            f"Thread pause activated by LLM for thread {thread_identifier}. Reason: {reason}")
+                                    else:
+                                        llm_args_for_second_prompt[
+                                            "details_for_user"] = "I tried to pause this chat, but there was an issue identifying the specific chat thread. Please try again or contact the owner."
+                                        print(
+                                            f"ERROR: LLM tried to trigger_thread_pause but thread_identifier was not available.")
 
                             elif part.text:  # Direct text reply from LLM
                                 reply_text = format_message_for_llm(part.text.strip(),
@@ -657,7 +784,7 @@ def auto_respond_via_ui():
                                 if active_thread_identifier and active_thread_identifier.lower() == thread_identifier.lower():
                                     if u2_utils.send_dm_in_open_thread(d_device, reply_text):
                                         message_sent_successfully = True
-                                        bot_sent_message_hashes.add(hash(reply_text.strip())) # Verified
+                                        bot_sent_message_hashes.add(hash(reply_text.strip()))  # Verified
                                 else:  # Should not happen if send_message context switch is handled correctly
                                     print(
                                         f"LLM direct reply: Active thread is '{active_thread_identifier}', target is '{thread_identifier}'. Re-opening target.")
@@ -665,7 +792,7 @@ def auto_respond_via_ui():
                                         active_thread_identifier = thread_identifier
                                         if u2_utils.send_dm_in_open_thread(d_device, reply_text):
                                             message_sent_successfully = True
-                                            bot_sent_message_hashes.add(hash(reply_text.strip())) # Verified
+                                            bot_sent_message_hashes.add(hash(reply_text.strip()))  # Verified
                                     else:
                                         print(
                                             f"ERROR: Could not re-open {thread_identifier} to send LLM direct reply. Message lost.")
@@ -733,7 +860,7 @@ def auto_respond_via_ui():
                                     for attempt_send in range(SEND_EXPLANATION_ATTEMPTS):
                                         if u2_utils.send_dm_in_open_thread(d_device, user_explanation):
                                             message_sent_successfully_explain = True
-                                            bot_sent_message_hashes.add(hash(user_explanation.strip())) # Verified
+                                            bot_sent_message_hashes.add(hash(user_explanation.strip()))  # Verified
                                             print(
                                                 f"INFO: Successfully sent explanation to {thread_identifier} (attempt {attempt_send + 1}).")
                                             break  # Exit send retry loop on success

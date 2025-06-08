@@ -17,6 +17,12 @@ MAX_SLEEP_TIME = int(os.getenv("MAX_SLEEP_TIME", "180")) # Max sleep time in sec
 # Interval in seconds to check for new DMs (blue dot indicator) when no unread DMs were found in the previous cycle.
 BLUE_DOT_CHECK_INTERVAL = int(os.getenv("BLUE_DOT_CHECK_INTERVAL", "5"))
 
+# --- Thread Pause Settings ---
+THREAD_PAUSE_KEYWORD = os.getenv("THREAD_PAUSE_KEYWORD", "/pause_chat")
+THREAD_RESUME_KEYWORD = os.getenv("THREAD_RESUME_KEYWORD", "/resume_chat")
+THREAD_PAUSE_CONFIRMATION_MESSAGE = os.getenv("THREAD_PAUSE_CONFIRMATION_MESSAGE", "{BOT_DISPLAY_NAME}: Auto-responses have been PAUSED for this chat. Send '{THREAD_RESUME_KEYWORD}' to resume.")
+THREAD_RESUME_CONFIRMATION_MESSAGE = os.getenv("THREAD_RESUME_CONFIRMATION_MESSAGE", "{BOT_DISPLAY_NAME}: Auto-responses have been RESUMED for this chat.")
+
 # --- Prompt Templates for Gemini ---
 PROMPT_FIRST_TEMPLATE = """
 You are Raphael, a sophisticated and autonomous digital assistant. You operate under the Instagram username [[bot_instagram_username]], and your profile display name is [[bot_display_name]].
