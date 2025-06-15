@@ -155,6 +155,23 @@ def _get_element_identifier(ui_object_info):
         return None
     return ui_object_info.get('contentDescription') or ui_object_info.get('text')
 
+def get_username_from_open_chat_header(d_device):
+    """
+    Retrieves the username from the header of the currently open DM chat.
+    Returns the username string or None if not found or header is empty.
+    """
+    header_element = d_device(resourceId=DM_CHAT_HEADER_USERNAME_TEXT_RESID)
+    if header_element.wait(timeout=1): # Short timeout, assumes chat is already open
+        header_info = header_element.info
+        username = _get_element_identifier(header_info) # Uses existing internal helper
+        if username:
+            return username
+        else:
+            print("WARN: Chat header element found, but text/desc is empty.")
+            return None
+    else:
+        print("WARN: Chat header element (DM_CHAT_HEADER_USERNAME_TEXT_RESID) not found in get_username_from_open_chat_header.")
+        return None
 
 def open_thread_by_username(d, target_username_in_list, max_scrolls=3):
     """Opens an existing DM thread from the DM list by scrolling and matching username."""

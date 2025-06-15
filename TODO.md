@@ -2,12 +2,13 @@
 
 ## 🐞 Fixes
 - [ ] Optimize response time
+- [ ] Back-to-back multiple function calls in a single response
 - [ ] Reimplement functions available for Instagrapi implementation for UIAutomator2 implementation
-    - [ ] pause_response: LLM/user/owner-triggered pause_response, each with different lift rules (special instance for owner)
-    - [ ] resume_response: keyword-based resume_response function to resume auto response without wasting API usage 
     - [ ] list_threads: list all open threads (Only callable by owner)
     - [ ] view_dms: view DMs in a thread (Only callable by owner)
     - [ ] fetch_followers_followings: fetch followers and followings of any given account if visible to bot (currently a stub)
+    - [x] pause_response: User/owner-triggered pause_response, each with different lift rules (special instance for owner)
+    - [x] resume_response: keyword-based resume_response function to resume auto response without wasting API usage 
 - [x] For messages sent through function call, it counts them as being sent by the user though they are sent by the bot.
 - [x] For larger responses sent by the bot it counts them as being sent by the user
 - [x] Self-calling of notify_owner function by LLM without explicit mention working inconsistency

@@ -270,6 +270,20 @@ def auto_respond_via_ui():
                 active_thread_identifier = None  # Tracks the currently open thread
 
                 for thread_identifier in unread_threads:
+                    # --- BEGIN NEW CODE ---
+                    if thread_identifier.lower() in paused_by_owner_threads:
+                        print(
+                            f"Thread '{thread_identifier}' is currently paused by the owner. Skipping its processing from unread list for this cycle.")
+                        # Update timestamp to prevent immediate reprocessing if blue dot persists due to already checked messages
+                        last_checked_timestamps[thread_identifier] = datetime.now()
+                        # Also, ensure any new messages that might have been fetched IF we didn't skip
+                        # are notionally marked. Since we are skipping message fetching entirely for this thread,
+                        # this primarily serves to prevent a loop if the blue dot doesn't clear without opening.
+                        # This might be an over-cautious measure if the blue dot clears on its own.
+                        # For now, just updating last_checked_timestamps should be the main effect.
+                        continue  # Move to the next thread_identifier in unread_threads
+                    # --- END NEW CODE ---
+
                     critical_context_switch_error = False
                     if thread_identifier.lower() == BOT_ACTUAL_USERNAME.lower():
                         print(f"Skipping unread indicator in own chat ({thread_identifier}).")
@@ -368,127 +382,170 @@ def auto_respond_via_ui():
 
                             # --- Handle Owner Remote Pause ---
                             if command == OWNER_REMOTE_PAUSE_KEYWORD.lower():
-                                if target_username:
-                                    if target_username.lower() == BOT_ACTUAL_USERNAME.lower():
-                                        pass
+                                owner_command_target_username = command_parts[1] if len(
+                                    command_parts) > 1 else None  # Renamed for clarity
+                                definitive_target_key_for_state = None
+
+                                if owner_command_target_username:
+                                    if owner_command_target_username.lower() == BOT_ACTUAL_USERNAME.lower():
+                                        pass  # Or some error message to owner if trying to pause self.
 
                                     print(
-                                        f"Owner remote PAUSE command for target '{target_username}' in thread {thread_identifier}.")
-                                    auto_responding[target_username] = False
-                                    paused_by_owner_threads.add(target_username.lower())
+                                        f"Owner remote PAUSE command for target argument '{owner_command_target_username}' in owner's thread {thread_identifier}.")
 
-                                    owner_confirm_msg = OWNER_REMOTE_PAUSE_SUCCESS_CONFIRMATION.format(
-                                        BOT_DISPLAY_NAME=BOT_DISPLAY_NAME, TARGET_USERNAME=target_username
-                                    )
-                                    if u2_utils.send_dm_in_open_thread(d_device, owner_confirm_msg):
-                                        bot_sent_message_hashes.add(hash(owner_confirm_msg.strip()))
-                                        history_entry_owner_confirm = {
-                                            "id": hash(owner_confirm_msg),
-                                            "stable_id_for_history": hash(owner_confirm_msg),
-                                            "user_id": BOT_ACTUAL_USERNAME, "username": BOT_ACTUAL_USERNAME,
-                                            "text": owner_confirm_msg,
-                                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                        }
-                                        all_threads_history[thread_identifier]["messages"].append(
-                                            history_entry_owner_confirm)
-                                        all_threads_history[thread_identifier]["processed_stable_ids"].add(
-                                            hash(owner_confirm_msg))
-
-                                    if u2_utils.search_and_open_dm_with_user(d_device, target_username,
+                                    # Attempt to open/verify target user's chat
+                                    if u2_utils.search_and_open_dm_with_user(d_device, owner_command_target_username,
                                                                              BOT_ACTUAL_USERNAME):
-                                        target_notify_msg = TARGET_THREAD_PAUSED_BY_OWNER_NOTIFICATION.format(
-                                            BOT_DISPLAY_NAME=BOT_DISPLAY_NAME
+                                        definitive_target_username_from_ui_kw = u2_utils.get_username_from_open_chat_header(
+                                            d_device)
+
+                                        if not definitive_target_username_from_ui_kw:
+                                            err_msg_header = f"Note: Opened chat for '{owner_command_target_username}', but could not read chat header. Action aborted."
+                                            print(err_msg_header)
+                                            if u2_utils.send_dm_in_open_thread(d_device,
+                                                                               err_msg_header):  # Send error to owner in their chat
+                                                bot_sent_message_hashes.add(hash(err_msg_header.strip()))
+                                            # Ensure we go back to owner's chat if possible, or DM list
+                                            if not u2_utils.open_thread_by_username(d_device,
+                                                                                    thread_identifier):  # thread_identifier is owner's chat
+                                                u2_utils.go_to_dm_list(d_device)
+                                        else:
+                                            definitive_target_key_for_state = definitive_target_username_from_ui_kw.lower()
+                                            print(
+                                                f"Confirmed target for PAUSE: '{definitive_target_username_from_ui_kw}' (key: '{definitive_target_key_for_state}')")
+
+                                            auto_responding[definitive_target_key_for_state] = False
+                                            paused_by_owner_threads.add(definitive_target_key_for_state)
+
+                                            # Notify target user (already in their chat)
+                                            target_notify_msg = TARGET_THREAD_PAUSED_BY_OWNER_NOTIFICATION.format(
+                                                BOT_DISPLAY_NAME=BOT_DISPLAY_NAME)
+                                            if u2_utils.send_dm_in_open_thread(d_device, target_notify_msg):
+                                                bot_sent_message_hashes.add(hash(target_notify_msg.strip()))
+                                                all_threads_history.setdefault(definitive_target_key_for_state, {
+                                                    "users": [definitive_target_key_for_state, BOT_ACTUAL_USERNAME],
+                                                    "messages": [], "processed_stable_ids": set()})
+                                                history_entry_target_notify = {"id": hash(target_notify_msg),
+                                                                               "stable_id_for_history": hash(
+                                                                                   target_notify_msg),
+                                                                               "user_id": BOT_ACTUAL_USERNAME,
+                                                                               "username": BOT_ACTUAL_USERNAME,
+                                                                               "text": target_notify_msg,
+                                                                               "timestamp": datetime.now().strftime(
+                                                                                   "%Y-%m-%d %H:%M:%S")}
+                                                all_threads_history[definitive_target_key_for_state]["messages"].append(
+                                                    history_entry_target_notify)
+                                                all_threads_history[definitive_target_key_for_state][
+                                                    "processed_stable_ids"].add(hash(target_notify_msg))
+
+                                            # Return to owner's chat and send confirmation
+                                            if u2_utils.open_thread_by_username(d_device,
+                                                                                thread_identifier):  # thread_identifier is owner's chat
+                                                owner_confirm_msg = OWNER_REMOTE_PAUSE_SUCCESS_CONFIRMATION.format(
+                                                    BOT_DISPLAY_NAME=BOT_DISPLAY_NAME,
+                                                    TARGET_USERNAME=definitive_target_username_from_ui_kw
+                                                )
+                                                if u2_utils.send_dm_in_open_thread(d_device, owner_confirm_msg):
+                                                    bot_sent_message_hashes.add(hash(owner_confirm_msg.strip()))
+                                                    # Add owner confirmation to owner's chat history (already handled for thread_identifier)
+                                            else:  # Failed to return to owner's chat
+                                                print(
+                                                    f"ERROR: Failed to return to owner's chat {thread_identifier} to send PAUSE confirmation.")
+                                                # Owner confirmation is lost, but action was performed.
+                                    else:  # Failed to open target user's chat
+                                        err_msg_target = OWNER_REMOTE_TARGET_NOT_FOUND_ERROR.format(
+                                            BOT_DISPLAY_NAME=BOT_DISPLAY_NAME,
+                                            TARGET_USERNAME=owner_command_target_username
                                         )
-                                        if u2_utils.send_dm_in_open_thread(d_device, target_notify_msg):
-                                            bot_sent_message_hashes.add(hash(target_notify_msg.strip()))
-                                            all_threads_history.setdefault(target_username, {
-                                                "users": [target_username, BOT_ACTUAL_USERNAME], "messages": [],
-                                                "processed_stable_ids": set()})
-                                            history_entry_target_notify = {
-                                                "id": hash(target_notify_msg),
-                                                "stable_id_for_history": hash(target_notify_msg),
-                                                "user_id": BOT_ACTUAL_USERNAME, "username": BOT_ACTUAL_USERNAME,
-                                                "text": target_notify_msg,
-                                                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                            }
-                                            all_threads_history[target_username]["messages"].append(
-                                                history_entry_target_notify)
-                                            all_threads_history[target_username]["processed_stable_ids"].add(
-                                                hash(target_notify_msg))
-                                        _perform_back_press(d_device)
-                                        if not u2_utils.open_thread_by_username(d_device, thread_identifier):
-                                            u2_utils.go_to_dm_list(d_device)
-                                    else:
-                                        err_msg_target = f"Note: Could not open DM to notify target user {target_username}."
+                                        # This error message is sent in the owner's currently open chat (thread_identifier)
                                         if u2_utils.send_dm_in_open_thread(d_device, err_msg_target):
                                             bot_sent_message_hashes.add(hash(err_msg_target.strip()))
-                                    owner_remote_command_processed = True
-                                else:
+                                else:  # No target_username provided in command
                                     err_msg = OWNER_REMOTE_TARGET_NOT_FOUND_ERROR.format(
                                         BOT_DISPLAY_NAME=BOT_DISPLAY_NAME, TARGET_USERNAME="<missing_username>")
                                     if u2_utils.send_dm_in_open_thread(d_device, err_msg):
                                         bot_sent_message_hashes.add(hash(err_msg.strip()))
-                                    owner_remote_command_processed = True
-
-                                    # --- Handle Owner Remote Resume ---
+                                owner_remote_command_processed = True
+                            # --- Handle Owner Remote Resume ---
                             elif command == OWNER_REMOTE_RESUME_KEYWORD.lower():
-                                if target_username:
+                                owner_command_target_username = command_parts[1] if len(command_parts) > 1 else None
+                                definitive_target_key_for_state = None
+
+                                if owner_command_target_username:
+                                    if owner_command_target_username.lower() == BOT_ACTUAL_USERNAME.lower():
+                                        pass  # Cannot resume self if not paused by owner.
+
                                     print(
-                                        f"Owner remote RESUME command for target '{target_username}' in thread {thread_identifier}.")
-                                    auto_responding[target_username] = True
-                                    paused_by_owner_threads.discard(target_username.lower())
+                                        f"Owner remote RESUME command for target argument '{owner_command_target_username}' in owner's thread {thread_identifier}.")
 
-                                    owner_confirm_msg = OWNER_REMOTE_RESUME_SUCCESS_CONFIRMATION.format(
-                                        BOT_DISPLAY_NAME=BOT_DISPLAY_NAME, TARGET_USERNAME=target_username
-                                    )
-                                    if u2_utils.send_dm_in_open_thread(d_device, owner_confirm_msg):
-                                        bot_sent_message_hashes.add(hash(owner_confirm_msg.strip()))
-                                        history_entry_owner_confirm = {
-                                            "id": hash(owner_confirm_msg),
-                                            "stable_id_for_history": hash(owner_confirm_msg),
-                                            "user_id": BOT_ACTUAL_USERNAME, "username": BOT_ACTUAL_USERNAME,
-                                            "text": owner_confirm_msg,
-                                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                        }
-                                        all_threads_history[thread_identifier]["messages"].append(
-                                            history_entry_owner_confirm)
-                                        all_threads_history[thread_identifier]["processed_stable_ids"].add(
-                                            hash(owner_confirm_msg))
-
-                                    if u2_utils.search_and_open_dm_with_user(d_device, target_username,
+                                    if u2_utils.search_and_open_dm_with_user(d_device, owner_command_target_username,
                                                                              BOT_ACTUAL_USERNAME):
-                                        target_notify_msg = TARGET_THREAD_RESUMED_BY_OWNER_NOTIFICATION.format()
-                                        if u2_utils.send_dm_in_open_thread(d_device, target_notify_msg):
-                                            bot_sent_message_hashes.add(hash(target_notify_msg.strip()))
-                                            all_threads_history.setdefault(target_username, {
-                                                "users": [target_username, BOT_ACTUAL_USERNAME], "messages": [],
-                                                "processed_stable_ids": set()})
-                                            history_entry_target_notify = {
-                                                "id": hash(target_notify_msg),
-                                                "stable_id_for_history": hash(target_notify_msg),
-                                                "user_id": BOT_ACTUAL_USERNAME, "username": BOT_ACTUAL_USERNAME,
-                                                "text": target_notify_msg,
-                                                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                            }
-                                            all_threads_history[target_username]["messages"].append(
-                                                history_entry_target_notify)
-                                            all_threads_history[target_username]["processed_stable_ids"].add(
-                                                hash(target_notify_msg))
+                                        # Using a distinct variable name for the resume block as requested
+                                        definitive_target_username_from_ui_kw_resume = u2_utils.get_username_from_open_chat_header(
+                                            d_device)
 
-                                        _perform_back_press(d_device)
-                                        if not u2_utils.open_thread_by_username(d_device, thread_identifier):
-                                            u2_utils.go_to_dm_list(d_device)
-                                    else:
-                                        err_msg_target = f"Note: Could not open DM to notify target user {target_username}."
-                                        if u2_utils.send_dm_in_open_thread(d_device, err_msg_target):
+                                        if not definitive_target_username_from_ui_kw_resume:
+                                            err_msg_header = f"Note: Opened chat for '{owner_command_target_username}', but could not read chat header. Action aborted."
+                                            print(err_msg_header)
+                                            if u2_utils.send_dm_in_open_thread(d_device,
+                                                                               err_msg_header):  # Send error to owner
+                                                bot_sent_message_hashes.add(hash(err_msg_header.strip()))
+                                            if not u2_utils.open_thread_by_username(d_device,
+                                                                                    thread_identifier):  # Return to Owner's chat
+                                                u2_utils.go_to_dm_list(d_device)
+                                        else:
+                                            definitive_target_key_for_state = definitive_target_username_from_ui_kw_resume.lower()
+                                            print(
+                                                f"Confirmed target for RESUME: '{definitive_target_username_from_ui_kw_resume}' (key: '{definitive_target_key_for_state}')")
+
+                                            auto_responding[definitive_target_key_for_state] = True
+                                            paused_by_owner_threads.discard(definitive_target_key_for_state)
+
+                                            target_notify_msg = TARGET_THREAD_RESUMED_BY_OWNER_NOTIFICATION.format(
+                                                BOT_DISPLAY_NAME=BOT_DISPLAY_NAME)
+                                            if u2_utils.send_dm_in_open_thread(d_device, target_notify_msg):
+                                                bot_sent_message_hashes.add(hash(target_notify_msg.strip()))
+                                                all_threads_history.setdefault(definitive_target_key_for_state, {
+                                                    "users": [definitive_target_key_for_state, BOT_ACTUAL_USERNAME],
+                                                    "messages": [], "processed_stable_ids": set()})
+                                                history_entry_target_notify = {"id": hash(target_notify_msg),
+                                                                               "stable_id_for_history": hash(
+                                                                                   target_notify_msg),
+                                                                               "user_id": BOT_ACTUAL_USERNAME,
+                                                                               "username": BOT_ACTUAL_USERNAME,
+                                                                               "text": target_notify_msg,
+                                                                               "timestamp": datetime.now().strftime(
+                                                                                   "%Y-%m-%d %H:%M:%S")}
+                                                all_threads_history[definitive_target_key_for_state]["messages"].append(
+                                                    history_entry_target_notify)
+                                                all_threads_history[definitive_target_key_for_state][
+                                                    "processed_stable_ids"].add(hash(target_notify_msg))
+
+                                            if u2_utils.open_thread_by_username(d_device,
+                                                                                thread_identifier):  # Return to Owner's chat
+                                                owner_confirm_msg = OWNER_REMOTE_RESUME_SUCCESS_CONFIRMATION.format(
+                                                    BOT_DISPLAY_NAME=BOT_DISPLAY_NAME,
+                                                    TARGET_USERNAME=definitive_target_username_from_ui_kw_resume
+                                                )
+                                                if u2_utils.send_dm_in_open_thread(d_device, owner_confirm_msg):
+                                                    bot_sent_message_hashes.add(hash(owner_confirm_msg.strip()))
+                                            else:
+                                                print(
+                                                    f"ERROR: Failed to return to owner's chat {thread_identifier} to send RESUME confirmation.")
+                                    else:  # Failed to open target chat
+                                        err_msg_target = OWNER_REMOTE_TARGET_NOT_FOUND_ERROR.format(
+                                            BOT_DISPLAY_NAME=BOT_DISPLAY_NAME,
+                                            TARGET_USERNAME=owner_command_target_username
+                                        )
+                                        if u2_utils.send_dm_in_open_thread(d_device,
+                                                                           err_msg_target):  # Sent in Owner's chat
                                             bot_sent_message_hashes.add(hash(err_msg_target.strip()))
-                                    owner_remote_command_processed = True
-                                else:
+                                else:  # No target username
                                     err_msg = OWNER_REMOTE_TARGET_NOT_FOUND_ERROR.format(
                                         BOT_DISPLAY_NAME=BOT_DISPLAY_NAME, TARGET_USERNAME="<missing_username>")
                                     if u2_utils.send_dm_in_open_thread(d_device, err_msg):
                                         bot_sent_message_hashes.add(hash(err_msg.strip()))
-                                    owner_remote_command_processed = True
+                                owner_remote_command_processed = True
 
                         if owner_remote_command_processed:
                             for msg_data_item in new_ui_messages_to_process:
@@ -965,150 +1022,136 @@ def auto_respond_via_ui():
                                     print(
                                         f"INFO: 'details_for_user' for second LLM prompt for {llm_function_name}: {llm_args_for_second_prompt.get('details_for_user')}")
                                 elif llm_function_name == "owner_control_thread_autoresponse":
-                                    target_username_control = llm_args_for_second_prompt.get("target_username")
+                                    target_username_control_arg = llm_args_for_second_prompt.get(
+                                        "target_username")  # From LLM
                                     action_control = llm_args_for_second_prompt.get("action")
                                     details_for_user_msg = ""
+                                    definitive_target_key = None  # Will hold the UI-confirmed username, lowercased
 
                                     if sender_username_ui.lower() != OWNER_USERNAME.lower():
                                         details_for_user_msg = "Error: This function can only be used by the owner."
                                         print(
                                             f"Security: Attempt to use owner_control_thread_autoresponse by non-owner {sender_username_ui}.")
-                                    elif not target_username_control or not action_control:
+                                    elif not target_username_control_arg or not action_control:
                                         details_for_user_msg = "Error: target_username and action are required."
                                         print(
-                                            f"Owner_control_thread_autoresponse: Missing parameters. Target: {target_username_control}, Action: {action_control}")
+                                            f"Owner_control_thread_autoresponse: Missing parameters. Target arg: {target_username_control_arg}, Action: {action_control}")
                                     else:
-                                        target_username_control_lower = target_username_control.lower()
-                                        # Save owner's thread ID (which is the current thread_identifier in this loop context)
                                         original_owner_thread_id = thread_identifier
-                                        # current_active_thread_for_owner_context = active_thread_identifier # Not strictly needed here with new logic
 
-                                        if action_control == "pause":
-                                            auto_responding[target_username_control_lower] = False
-                                            paused_by_owner_threads.add(target_username_control_lower)
-                                            print(
-                                                f"Owner ({OWNER_USERNAME}) remotely PAUSED thread for {target_username_control_lower} via LLM function.")
+                                        if not u2_utils.go_to_dm_list(d_device):
+                                            details_for_user_msg = f"Error: Could not navigate to DM list before attempting to {action_control} {target_username_control_arg}."
+                                            print(f"ERROR: {details_for_user_msg}")
+                                        elif u2_utils.search_and_open_dm_with_user(d_device,
+                                                                                   target_username_control_arg,
+                                                                                   BOT_ACTUAL_USERNAME):
+                                            # Successfully opened/found target chat
+                                            # Get definitive username from header
+                                            definitive_target_username_from_ui = u2_utils.get_username_from_open_chat_header(
+                                                d_device)
 
-                                            # Notify target user
-                                            if not u2_utils.go_to_dm_list(d_device):
-                                                print(
-                                                    f"ERROR: Could not navigate to DM list before attempting to notify {target_username_control_lower} of pause.")
-                                                details_for_user_msg = f"Paused auto-responses for {target_username_control}, but failed to navigate to send them a notification."
-                                            elif u2_utils.search_and_open_dm_with_user(d_device,
-                                                                                       target_username_control,
-                                                                                       BOT_ACTUAL_USERNAME):
-                                                active_thread_identifier = target_username_control_lower  # Context switched to target
-                                                target_notify_msg = TARGET_THREAD_PAUSED_BY_OWNER_NOTIFICATION.format(
-                                                    BOT_DISPLAY_NAME=BOT_DISPLAY_NAME
-                                                )
-                                                if u2_utils.send_dm_in_open_thread(d_device, target_notify_msg):
-                                                    bot_sent_message_hashes.add(hash(target_notify_msg.strip()))
-                                                    all_threads_history.setdefault(target_username_control_lower, {
-                                                        "users": [target_username_control_lower, BOT_ACTUAL_USERNAME],
-                                                        "messages": [], "processed_stable_ids": set()})
-                                                    history_entry_target_notify = {"id": hash(target_notify_msg),
-                                                                                   "stable_id_for_history": hash(
-                                                                                       target_notify_msg),
-                                                                                   "user_id": BOT_ACTUAL_USERNAME,
-                                                                                   "username": BOT_ACTUAL_USERNAME,
-                                                                                   "text": target_notify_msg,
-                                                                                   "timestamp": datetime.now().strftime(
-                                                                                       "%Y-%m-%d %H:%M:%S")}
-                                                    all_threads_history[target_username_control_lower][
-                                                        "messages"].append(history_entry_target_notify)
-                                                    all_threads_history[target_username_control_lower][
-                                                        "processed_stable_ids"].add(hash(target_notify_msg))
-                                                    details_for_user_msg = f"Successfully paused auto-responses for {target_username_control} and notified them."
-                                                else:
-                                                    print(
-                                                        f"Failed to send pause notification to target {target_username_control_lower}")
-                                                    details_for_user_msg = f"Successfully paused auto-responses for {target_username_control}, but failed to send them a notification."
-
+                                            if not definitive_target_username_from_ui:
+                                                details_for_user_msg = f"Error: Opened chat for '{target_username_control_arg}', but could not read chat header to confirm username."
+                                                print(details_for_user_msg)
+                                                # Attempt to go back to DM list if header read fails
                                                 if not u2_utils.return_to_dm_list_from_thread(
                                                     d_device): u2_utils.go_to_dm_list(d_device)
                                                 active_thread_identifier = None
                                             else:
-                                                print(
-                                                    f"Could not open DM to notify target user {target_username_control_lower} about pause.")
-                                                details_for_user_msg = f"Successfully paused auto-responses for {target_username_control}, but could not open their DM to notify."
-                                                active_thread_identifier = None  # Should be in DM list or failed to open
+                                                definitive_target_key = definitive_target_username_from_ui.lower()
+                                                active_thread_identifier = definitive_target_key  # Context is now target's chat
 
-                                        elif action_control == "resume":
-                                            auto_responding[target_username_control_lower] = True
-                                            paused_by_owner_threads.discard(target_username_control_lower)
-                                            print(
-                                                f"Owner ({OWNER_USERNAME}) remotely RESUMED thread for {target_username_control_lower} via LLM function.")
-
-                                            if not u2_utils.go_to_dm_list(d_device):
-                                                print(
-                                                    f"ERROR: Could not navigate to DM list before attempting to notify {target_username_control_lower} of resume.")
-                                                details_for_user_msg = f"Resumed auto-responses for {target_username_control}, but failed to navigate to send them a notification."
-                                            elif u2_utils.search_and_open_dm_with_user(d_device,
-                                                                                       target_username_control,
-                                                                                       BOT_ACTUAL_USERNAME):
-                                                active_thread_identifier = target_username_control_lower
-                                                target_notify_msg = TARGET_THREAD_RESUMED_BY_OWNER_NOTIFICATION.format(
-                                                    BOT_DISPLAY_NAME=BOT_DISPLAY_NAME
-                                                )
-                                                if u2_utils.send_dm_in_open_thread(d_device, target_notify_msg):
-                                                    bot_sent_message_hashes.add(hash(target_notify_msg.strip()))
-                                                    all_threads_history.setdefault(target_username_control_lower, {
-                                                        "users": [target_username_control_lower, BOT_ACTUAL_USERNAME],
-                                                        "messages": [], "processed_stable_ids": set()})
-                                                    history_entry_target_notify = {"id": hash(target_notify_msg),
-                                                                                   "stable_id_for_history": hash(
-                                                                                       target_notify_msg),
-                                                                                   "user_id": BOT_ACTUAL_USERNAME,
-                                                                                   "username": BOT_ACTUAL_USERNAME,
-                                                                                   "text": target_notify_msg,
-                                                                                   "timestamp": datetime.now().strftime(
-                                                                                       "%Y-%m-%d %H:%M:%S")}
-                                                    all_threads_history[target_username_control_lower][
-                                                        "messages"].append(history_entry_target_notify)
-                                                    all_threads_history[target_username_control_lower][
-                                                        "processed_stable_ids"].add(hash(target_notify_msg))
-                                                    details_for_user_msg = f"Successfully resumed auto-responses for {target_username_control} and notified them."
-                                                else:
+                                                if action_control == "pause":
+                                                    auto_responding[definitive_target_key] = False
+                                                    paused_by_owner_threads.add(definitive_target_key)
                                                     print(
-                                                        f"Failed to send resume notification to target {target_username_control_lower}")
-                                                    details_for_user_msg = f"Successfully resumed auto-responses for {target_username_control}, but failed to send them a notification."
+                                                        f"Owner ({OWNER_USERNAME}) remotely PAUSED thread for {definitive_target_key} (arg was {target_username_control_arg}) via LLM function.")
+                                                    target_notify_msg = TARGET_THREAD_PAUSED_BY_OWNER_NOTIFICATION.format(
+                                                        BOT_DISPLAY_NAME=BOT_DISPLAY_NAME)
+                                                    if u2_utils.send_dm_in_open_thread(d_device, target_notify_msg):
+                                                        bot_sent_message_hashes.add(hash(target_notify_msg.strip()))
+                                                        all_threads_history.setdefault(definitive_target_key, {
+                                                            "users": [definitive_target_key, BOT_ACTUAL_USERNAME],
+                                                            "messages": [], "processed_stable_ids": set()})
+                                                        history_entry_target_notify = {"id": hash(target_notify_msg),
+                                                                                       "stable_id_for_history": hash(
+                                                                                           target_notify_msg),
+                                                                                       "user_id": BOT_ACTUAL_USERNAME,
+                                                                                       "username": BOT_ACTUAL_USERNAME,
+                                                                                       "text": target_notify_msg,
+                                                                                       "timestamp": datetime.now().strftime(
+                                                                                           "%Y-%m-%d %H:%M:%S")}
+                                                        all_threads_history[definitive_target_key]["messages"].append(
+                                                            history_entry_target_notify)
+                                                        all_threads_history[definitive_target_key][
+                                                            "processed_stable_ids"].add(hash(target_notify_msg))
+                                                        details_for_user_msg = f"Successfully paused auto-responses for {definitive_target_username_from_ui} and notified them."
+                                                    else:
+                                                        details_for_user_msg = f"Successfully paused auto-responses for {definitive_target_username_from_ui}, but failed to send them a notification."
 
+                                                elif action_control == "resume":
+                                                    auto_responding[definitive_target_key] = True
+                                                    paused_by_owner_threads.discard(definitive_target_key)
+                                                    print(
+                                                        f"Owner ({OWNER_USERNAME}) remotely RESUMED thread for {definitive_target_key} (arg was {target_username_control_arg}) via LLM function.")
+                                                    target_notify_msg = TARGET_THREAD_RESUMED_BY_OWNER_NOTIFICATION.format(
+                                                        BOT_DISPLAY_NAME=BOT_DISPLAY_NAME)
+                                                    if u2_utils.send_dm_in_open_thread(d_device, target_notify_msg):
+                                                        bot_sent_message_hashes.add(hash(target_notify_msg.strip()))
+                                                        all_threads_history.setdefault(definitive_target_key, {
+                                                            "users": [definitive_target_key, BOT_ACTUAL_USERNAME],
+                                                            "messages": [], "processed_stable_ids": set()})
+                                                        history_entry_target_notify = {"id": hash(target_notify_msg),
+                                                                                       "stable_id_for_history": hash(
+                                                                                           target_notify_msg),
+                                                                                       "user_id": BOT_ACTUAL_USERNAME,
+                                                                                       "username": BOT_ACTUAL_USERNAME,
+                                                                                       "text": target_notify_msg,
+                                                                                       "timestamp": datetime.now().strftime(
+                                                                                           "%Y-%m-%d %H:%M:%S")}
+                                                        all_threads_history[definitive_target_key]["messages"].append(
+                                                            history_entry_target_notify)
+                                                        all_threads_history[definitive_target_key][
+                                                            "processed_stable_ids"].add(hash(target_notify_msg))
+                                                        details_for_user_msg = f"Successfully resumed auto-responses for {definitive_target_username_from_ui} and notified them."
+                                                    else:
+                                                        details_for_user_msg = f"Successfully resumed auto-responses for {definitive_target_username_from_ui}, but failed to send them a notification."
+                                                else:
+                                                    details_for_user_msg = f"Error: Invalid action '{action_control}' for {definitive_target_username_from_ui}. Must be 'pause' or 'resume'."
+                                                    print(
+                                                        f"Owner_control_thread_autoresponse: Invalid action {action_control} by {OWNER_USERNAME}")
+
+                                                # Return to DM list from target's chat
                                                 if not u2_utils.return_to_dm_list_from_thread(
                                                     d_device): u2_utils.go_to_dm_list(d_device)
                                                 active_thread_identifier = None
-                                            else:
-                                                print(
-                                                    f"Could not open DM to notify target user {target_username_control_lower} about resume.")
-                                                details_for_user_msg = f"Successfully resumed auto-responses for {target_username_control}, but could not open their DM to notify."
-                                                active_thread_identifier = None  # Should be in DM list or failed to open
-                                        else:
-                                            details_for_user_msg = f"Error: Invalid action '{action_control}'. Must be 'pause' or 'resume'."
-                                            print(
-                                                f"Owner_control_thread_autoresponse: Invalid action {action_control} by {OWNER_USERNAME}")
+                                        else:  # Failed to search_and_open_dm_with_user
+                                            details_for_user_msg = f"Error: Could not find or open DM thread with user '{target_username_control_arg}' to {action_control}."
+                                            print(details_for_user_msg)
+                                            active_thread_identifier = None  # Should be in DM list or failed state
 
-                                        # Restore context to owner's thread for the LLM's second response (confirmation to owner)
+                                        # Restore context to owner's thread for the LLM's second response
+                                        # (Copied from previous implementation, seems okay)
                                         print(
                                             f"Attempting to restore context to owner's thread: {original_owner_thread_id}. Current active_thread_identifier (should be None): {active_thread_identifier}")
                                         if active_thread_identifier is None:
-                                            if u2_utils.open_thread_by_username(d_device,
-                                                                                original_owner_thread_id):  # original_owner_thread_id is the owner's chat thread_id
+                                            if u2_utils.open_thread_by_username(d_device, original_owner_thread_id):
                                                 active_thread_identifier = original_owner_thread_id
                                                 print(
                                                     f"Successfully switched back to owner's thread: {active_thread_identifier}")
                                             else:
                                                 print(
-                                                    f"CRITICAL ERROR: Failed to switch back to owner's thread {original_owner_thread_id} after owner_control_thread. LLM explanation might be lost or sent to wrong thread.")
-                                                details_for_user_msg += " (Error: Could not return to our chat for this confirmation message. The action on the target user was still performed.)"
+                                                    f"CRITICAL ERROR: Failed to switch back to owner's thread {original_owner_thread_id}. LLM explanation might be lost.")
+                                                details_for_user_msg += " (Error: Could not return to our chat for this confirmation.)"
                                         elif active_thread_identifier.lower() != original_owner_thread_id.lower():
-                                            # This is a less expected state, means active_thread_identifier was not None after target interaction
                                             print(
                                                 f"WARN: Context issue. Active thread {active_thread_identifier} was not None. Attempting to open owner's thread {original_owner_thread_id}.")
                                             if u2_utils.open_thread_by_username(d_device, original_owner_thread_id):
                                                 active_thread_identifier = original_owner_thread_id
                                             else:
                                                 print(
-                                                    f"CRITICAL ERROR: Failed to force switch to owner's thread {original_owner_thread_id} from unexpected active thread {active_thread_identifier}.")
-                                                details_for_user_msg += " (Error: Context switch issue for this confirmation. Action on target was performed.)"
+                                                    f"CRITICAL ERROR: Failed to force switch to owner's thread {original_owner_thread_id}.")
+                                                details_for_user_msg += " (Error: Context switch issue for this confirmation.)"
                                         else:
                                             print(
                                                 f"Context is already owner's thread: {active_thread_identifier}. No switch needed.")
@@ -1337,7 +1380,7 @@ if __name__ == "__main__":
             raise Exception("Failed to get device_info after connect. Connection might be unstable.")
         print(
             f"Successfully connected to: {device_info.get('model', 'Unknown Model')} (Serial: {device_info.get('serial', 'N/A')})")
-        print(f"Screen resolution: {d_device.window_size()}")
+        # print(f"Screen resolution: {d_device.window_size()}")
 
     except Exception as e:
         print(f"FATAL: Could not connect to uiautomator2 device. Error: {e}")
