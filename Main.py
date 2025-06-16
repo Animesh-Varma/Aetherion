@@ -54,6 +54,21 @@ notify_owner_func = FunctionDeclaration(
     }
 )
 
+view_dms_func = FunctionDeclaration(
+    name="view_dms",
+    description=f"Fetches the locally stored direct message (DM) history for a specified thread. This function can only be called by the owner ({OWNER_USERNAME}). It does not mark messages as read or interact with the live Instagram UI for fetching.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "thread_id": {
+                "type": "string",
+                "description": "The Instagram username or group name of the thread whose DMs are to be viewed."
+            }
+        },
+        "required": ["thread_id"]
+    }
+)
+
 owner_control_thread_func = FunctionDeclaration(
     name="owner_control_thread_autoresponse",
     description="Allows the owner to pause or resume auto-responses for a specific target user's thread. This function can only be invoked if the request comes from the configured OWNER_USERNAME.",
@@ -137,7 +152,8 @@ tools = Tool(function_declarations=[
     send_message_func,
     fetch_followers_followings,
     trigger_thread_pause_func,
-    owner_control_thread_func
+    owner_control_thread_func,
+    view_dms_func
 ])
 model = genai.GenerativeModel("gemini-2.5-flash-preview-05-20", tools=tools)
 
@@ -223,6 +239,40 @@ def print_bot_user_info_ui():
     u2_utils.go_to_dm_list(d_device)  # Return to DMs
 
 
+def view_dms(thread_id: str, calling_username: str) -> str:
+    '''
+    Allows the owner to view the locally stored message history for a given thread.
+
+    Args:
+        thread_id: The username or group name of the thread to view.
+        calling_username: The username of the user calling this function.
+
+    Returns:
+        A string containing the formatted DMs or an error/info message.
+    '''
+    global all_threads_history, OWNER_USERNAME
+
+    if calling_username.lower() != OWNER_USERNAME.lower():
+        return "Error: You are not authorized to use this function."
+
+    thread_history = all_threads_history.get(thread_id.lower())  # Use .lower() for case-insensitive matching
+
+    if not thread_history or not thread_history.get("messages"):
+        return f"No local message history found for thread: {thread_id}"
+
+    formatted_messages = [f"--- DMs for thread: {thread_id} ---"]
+    for msg in thread_history["messages"]:
+        sender = msg.get("username", "Unknown User")
+        text = msg.get("text", "")
+        timestamp = msg.get("timestamp", "No timestamp")
+        formatted_messages.append(f"[{timestamp}] {sender}: {text}")
+
+    if len(formatted_messages) == 1:  # Only header was added
+        return f"No messages found in the local history for thread: {thread_id}"
+
+    return "\n".join(formatted_messages)
+
+
 def _perform_back_press(d_device_internal, LLM_HISTORY_LENGTH=10):
     """
     Performs back presses to ensure UI stability, typically to close keyboard/editor
@@ -289,17 +339,20 @@ def auto_respond_via_ui():
                         print(f"Skipping unread indicator in own chat ({thread_identifier}).")
                         continue
 
-                    print(f"\nProcessing unread UI Thread: {thread_identifier}")
+                    lower_thread_identifier = thread_identifier.lower()
 
-                    if thread_identifier not in auto_responding:
-                        auto_responding[thread_identifier] = True
-                    if thread_identifier not in all_threads_history:
-                        all_threads_history[thread_identifier] = {
-                            "users": [thread_identifier, BOT_ACTUAL_USERNAME],
+                    print(f"\nProcessing unread UI Thread: {thread_identifier} (key: {lower_thread_identifier})")
+
+                    if lower_thread_identifier not in auto_responding:  # Use lower_thread_identifier for auto_responding dict
+                        auto_responding[lower_thread_identifier] = True
+                    if lower_thread_identifier not in all_threads_history:
+                        all_threads_history[lower_thread_identifier] = {  # Use lower_thread_identifier
+                            "users": [thread_identifier, BOT_ACTUAL_USERNAME],  # Original casing for user list
                             "messages": [],
-                            "processed_stable_ids": set()  # Initialize here
+                            "processed_stable_ids": set()
                         }
-                    last_ts_for_thread = last_checked_timestamps.get(thread_identifier, start_time - timedelta(hours=1))
+                    last_ts_for_thread = last_checked_timestamps.get(lower_thread_identifier, start_time - timedelta(
+                        hours=1))  # Use lower_thread_identifier
 
                     if not u2_utils.open_thread_by_username(d_device, thread_identifier):
                         print(
@@ -317,8 +370,9 @@ def auto_respond_via_ui():
                                                                                    max_messages=MESSAGE_FETCH_AMOUNT)
                     latest_msg_timestamp_this_cycle = last_ts_for_thread
                     new_ui_messages_to_process = []
-                    if "processed_stable_ids" not in all_threads_history[thread_identifier]:  # Ensure initialization
-                        all_threads_history[thread_identifier]["processed_stable_ids"] = set()
+                    # lower_thread_identifier is already defined
+                    if "processed_stable_ids" not in all_threads_history[lower_thread_identifier]:
+                        all_threads_history[lower_thread_identifier]["processed_stable_ids"] = set()
 
                     for msg_ui in messages_in_thread_ui:
                         if msg_ui["timestamp"] > latest_msg_timestamp_this_cycle:
@@ -326,8 +380,10 @@ def auto_respond_via_ui():
 
                         stable_id = hash(str(msg_ui.get("user_id", "")) + str(msg_ui.get("text", "")))
 
-                        if stable_id not in all_threads_history[thread_identifier]["processed_stable_ids"]:
-                            all_threads_history[thread_identifier]["processed_stable_ids"].add(stable_id)
+                        if stable_id not in all_threads_history[lower_thread_identifier][
+                            "processed_stable_ids"]:  # Use lower_thread_identifier
+                            all_threads_history[lower_thread_identifier]["processed_stable_ids"].add(
+                                stable_id)  # Use lower_thread_identifier
 
                             history_entry = {
                                 "id": msg_ui["id"],
@@ -337,12 +393,14 @@ def auto_respond_via_ui():
                                 "text": msg_ui["text"],
                                 "timestamp": msg_ui["timestamp"].strftime("%Y-%m-%d %H:%M:%S")
                             }
-                            all_threads_history[thread_identifier]["messages"].append(history_entry)
+                            all_threads_history[lower_thread_identifier]["messages"].append(
+                                history_entry)  # Use lower_thread_identifier
                             if msg_ui["user_id"].lower() != BOT_ACTUAL_USERNAME.lower():
                                 new_ui_messages_to_process.append(msg_ui)
                                 processed_message_ids.add(msg_ui["id"])
 
-                    last_checked_timestamps[thread_identifier] = latest_msg_timestamp_this_cycle
+                    last_checked_timestamps[
+                        lower_thread_identifier] = latest_msg_timestamp_this_cycle  # Use lower_thread_identifier
 
                     if not new_ui_messages_to_process:
                         print(
@@ -434,16 +492,19 @@ def auto_respond_via_ui():
                                                                                "timestamp": datetime.now().strftime(
                                                                                    "%Y-%m-%d %H:%M:%S")}
                                                 all_threads_history[definitive_target_key_for_state]["messages"].append(
+                                                    # definitive_target_key_for_state is already lower
                                                     history_entry_target_notify)
                                                 all_threads_history[definitive_target_key_for_state][
+                                                    # definitive_target_key_for_state is already lower
                                                     "processed_stable_ids"].add(hash(target_notify_msg))
 
                                             # Return to owner's chat and send confirmation
                                             if u2_utils.open_thread_by_username(d_device,
-                                                                                thread_identifier):  # thread_identifier is owner's chat
+                                                                                thread_identifier):  # thread_identifier is owner's chat (original case)
                                                 owner_confirm_msg = OWNER_REMOTE_PAUSE_SUCCESS_CONFIRMATION.format(
                                                     BOT_DISPLAY_NAME=BOT_DISPLAY_NAME,
                                                     TARGET_USERNAME=definitive_target_username_from_ui_kw
+                                                    # Original case for display
                                                 )
                                                 if u2_utils.send_dm_in_open_thread(d_device, owner_confirm_msg):
                                                     bot_sent_message_hashes.add(hash(owner_confirm_msg.strip()))
@@ -517,15 +578,19 @@ def auto_respond_via_ui():
                                                                                "timestamp": datetime.now().strftime(
                                                                                    "%Y-%m-%d %H:%M:%S")}
                                                 all_threads_history[definitive_target_key_for_state]["messages"].append(
+                                                    # definitive_target_key_for_state is already lower
                                                     history_entry_target_notify)
                                                 all_threads_history[definitive_target_key_for_state][
+                                                    # definitive_target_key_for_state is already lower
                                                     "processed_stable_ids"].add(hash(target_notify_msg))
 
                                             if u2_utils.open_thread_by_username(d_device,
+                                                                                # thread_identifier is owner's chat (original case)
                                                                                 thread_identifier):  # Return to Owner's chat
                                                 owner_confirm_msg = OWNER_REMOTE_RESUME_SUCCESS_CONFIRMATION.format(
                                                     BOT_DISPLAY_NAME=BOT_DISPLAY_NAME,
                                                     TARGET_USERNAME=definitive_target_username_from_ui_kw_resume
+                                                    # Original case for display
                                                 )
                                                 if u2_utils.send_dm_in_open_thread(d_device, owner_confirm_msg):
                                                     bot_sent_message_hashes.add(hash(owner_confirm_msg.strip()))
@@ -552,14 +617,17 @@ def auto_respond_via_ui():
                                 processed_message_ids.add(msg_data_item["id"])
                                 stable_id_cmd = hash(
                                     str(msg_data_item.get("user_id", "")) + str(msg_data_item.get("text", "")))
-                                all_threads_history[thread_identifier]["processed_stable_ids"].add(stable_id_cmd)
+                                all_threads_history[lower_thread_identifier]["processed_stable_ids"].add(
+                                    stable_id_cmd)  # Use lower_thread_identifier
 
-                            last_checked_timestamps[thread_identifier] = latest_msg_timestamp_this_cycle
+                            last_checked_timestamps[
+                                lower_thread_identifier] = latest_msg_timestamp_this_cycle  # Use lower_thread_identifier
 
-                            if active_thread_identifier != thread_identifier:
-                                if not u2_utils.open_thread_by_username(d_device, thread_identifier):
+                            if active_thread_identifier != thread_identifier:  # active_thread_identifier keeps original casing for UI ops
+                                if not u2_utils.open_thread_by_username(d_device,
+                                                                        thread_identifier):  # UI ops use original casing
                                     u2_utils.go_to_dm_list(d_device)
-                                active_thread_identifier = thread_identifier
+                                active_thread_identifier = thread_identifier  # UI ops use original casing
 
                             time.sleep(random.randint(1, 2))
                             continue
@@ -587,8 +655,10 @@ def auto_respond_via_ui():
                                         "text": confirmation_text,
                                         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                                     }
-                                    all_threads_history[thread_identifier]["messages"].append(history_entry_confirm)
-                                    all_threads_history[thread_identifier]["processed_stable_ids"].add(
+                                    all_threads_history[lower_thread_identifier]["messages"].append(
+                                        history_entry_confirm)  # Use lower_thread_identifier
+                                    all_threads_history[lower_thread_identifier]["processed_stable_ids"].add(
+                                        # Use lower_thread_identifier
                                         hash(confirmation_text))
                                     print(f"Sent thread pause confirmation to {thread_identifier}.")
                                 else:
@@ -619,8 +689,10 @@ def auto_respond_via_ui():
                                             "text": notification_text,
                                             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                                         }
-                                        all_threads_history[thread_identifier]["messages"].append(history_entry_notify)
-                                        all_threads_history[thread_identifier]["processed_stable_ids"].add(
+                                        all_threads_history[lower_thread_identifier]["messages"].append(
+                                            history_entry_notify)  # Use lower_thread_identifier
+                                        all_threads_history[lower_thread_identifier]["processed_stable_ids"].add(
+                                            # Use lower_thread_identifier
                                             hash(notification_text))
                                         print(f"Sent 'cannot resume' notification to {thread_identifier}.")
                                     else:
@@ -644,8 +716,10 @@ def auto_respond_via_ui():
                                             "text": confirmation_text,
                                             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                                         }
-                                        all_threads_history[thread_identifier]["messages"].append(history_entry_confirm)
-                                        all_threads_history[thread_identifier]["processed_stable_ids"].add(
+                                        all_threads_history[lower_thread_identifier]["messages"].append(
+                                            history_entry_confirm)  # Use lower_thread_identifier
+                                        all_threads_history[lower_thread_identifier]["processed_stable_ids"].add(
+                                            # Use lower_thread_identifier
                                             hash(confirmation_text))
                                         print(f"Sent thread resume confirmation to {thread_identifier}.")
                                     else:
@@ -661,9 +735,11 @@ def auto_respond_via_ui():
                                 processed_message_ids.add(msg_data_item["id"])
                                 stable_id_cmd = hash(
                                     str(msg_data_item.get("user_id", "")) + str(msg_data_item.get("text", "")))
-                                all_threads_history[thread_identifier]["processed_stable_ids"].add(stable_id_cmd)
+                                all_threads_history[lower_thread_identifier]["processed_stable_ids"].add(
+                                    stable_id_cmd)  # Use lower_thread_identifier
 
-                            last_checked_timestamps[thread_identifier] = latest_msg_timestamp_this_cycle
+                            last_checked_timestamps[
+                                lower_thread_identifier] = latest_msg_timestamp_this_cycle  # Use lower_thread_identifier
 
                             # If a command was processed, we might want to skip the rest of the loop for this thread iteration (LLM calls etc.)
                             # Ensure we return to DM list and go to the next thread or cycle.
@@ -673,23 +749,24 @@ def auto_respond_via_ui():
                             time.sleep(random.randint(1, 2))  # Brief pause
                             continue  # Continue to the next thread_identifier in unread_threads
 
-                        if not auto_responding.get(thread_identifier,
-                                                   True) and thread_identifier.lower() not in paused_by_owner_threads:
+                        if not auto_responding.get(lower_thread_identifier,  # Use lower_thread_identifier
+                                                   True) and lower_thread_identifier not in paused_by_owner_threads:
                             if last_message_data["text"] and any(
                                     k_word in last_message_data["text"].lower() for k_word in
                                     ["resume", "start", "unpause",
-                                     THREAD_RESUME_KEYWORD.lower()]):  # Ensure THREAD_RESUME_KEYWORD is also lowercased here for comparison
-                                auto_responding[thread_identifier] = True
-                                resume_message = f"{BOT_DISPLAY_NAME}: Auto-response R E S U M E D for {thread_identifier}."
+                                     THREAD_RESUME_KEYWORD.lower()]):
+                                auto_responding[lower_thread_identifier] = True  # Use lower_thread_identifier
+                                resume_message = f"{BOT_DISPLAY_NAME}: Auto-response R E S U M E D for {thread_identifier}."  # Display original case
                                 if u2_utils.send_dm_in_open_thread(d_device, resume_message):
-                                    bot_sent_message_hashes.add(hash(resume_message.strip()))  # Verified
+                                    bot_sent_message_hashes.add(hash(resume_message.strip()))
                                     _perform_back_press(d_device)
                                     active_thread_identifier = None
                                 print(
                                     f"Auto-response resumed for {thread_identifier} based on keyword in last message.")
                                 for msg_data_item in new_ui_messages_to_process: processed_message_ids.add(
                                     msg_data_item["id"])
-                                last_checked_timestamps[thread_identifier] = latest_msg_timestamp_this_cycle
+                                last_checked_timestamps[
+                                    lower_thread_identifier] = latest_msg_timestamp_this_cycle  # Use lower_thread_identifier
                                 if not u2_utils.return_to_dm_list_from_thread(d_device): u2_utils.go_to_dm_list(
                                     d_device)
                                 active_thread_identifier = None
@@ -699,7 +776,8 @@ def auto_respond_via_ui():
                                 print(f"Auto-response paused for {thread_identifier}. Skipping batch.")
                                 for msg_data_item in new_ui_messages_to_process: processed_message_ids.add(
                                     msg_data_item["id"])
-                                last_checked_timestamps[thread_identifier] = latest_msg_timestamp_this_cycle
+                                last_checked_timestamps[
+                                    lower_thread_identifier] = latest_msg_timestamp_this_cycle  # Use lower_thread_identifier
                                 if not u2_utils.return_to_dm_list_from_thread(d_device): u2_utils.go_to_dm_list(
                                     d_device)
                                 active_thread_identifier = None
@@ -707,7 +785,9 @@ def auto_respond_via_ui():
                                 continue
 
                         prompt_history_lines = []
-                        current_full_thread_history = all_threads_history[thread_identifier]["messages"]
+                        # lower_thread_identifier is already defined
+                        current_full_thread_history = all_threads_history[lower_thread_identifier][
+                            "messages"]  # Use lower_thread_identifier
                         history_for_prompt_excluding_latest = [msg for msg in current_full_thread_history if
                                                                msg["id"] != latest_message_id]
                         final_messages_for_history_prompt = history_for_prompt_excluding_latest[-LLM_HISTORY_LENGTH:]
@@ -755,7 +835,8 @@ def auto_respond_via_ui():
                                 f"ERROR: Gemini API (1st pass) failed for {thread_identifier} with consolidated message: {e}")
                             for msg_data_item in new_ui_messages_to_process: processed_message_ids.add(
                                 msg_data_item["id"])
-                            last_checked_timestamps[thread_identifier] = latest_msg_timestamp_this_cycle
+                            last_checked_timestamps[
+                                lower_thread_identifier] = latest_msg_timestamp_this_cycle  # Use lower_thread_identifier
                             if not u2_utils.return_to_dm_list_from_thread(d_device): u2_utils.go_to_dm_list(d_device)
                             active_thread_identifier = None
                             time.sleep(random.randint(1, 2))
@@ -791,13 +872,15 @@ def auto_respond_via_ui():
                             for msg_new_check in messages_after_first_response:
                                 new_stable_id = hash(
                                     str(msg_new_check.get("user_id", "")) + str(msg_new_check.get("text", "")))
-
-                                if new_stable_id not in all_threads_history[thread_identifier][
+                                # lower_thread_identifier is already defined
+                                if new_stable_id not in all_threads_history[lower_thread_identifier][
+                                    # Use lower_thread_identifier
                                     "processed_stable_ids"] and \
                                         msg_new_check["user_id"].lower() != BOT_ACTUAL_USERNAME.lower():
 
                                     genuinely_new_messages.append(msg_new_check)
-                                    all_threads_history[thread_identifier]["processed_stable_ids"].add(new_stable_id)
+                                    all_threads_history[lower_thread_identifier]["processed_stable_ids"].add(
+                                        new_stable_id)  # Use lower_thread_identifier
                                     processed_message_ids.add(msg_new_check["id"])
 
                                     new_history_entry = {
@@ -808,8 +891,10 @@ def auto_respond_via_ui():
                                         "text": msg_new_check["text"],
                                         "timestamp": msg_new_check["timestamp"].strftime("%Y-%m-%d %H:%M:%S")
                                     }
-                                    all_threads_history[thread_identifier]["messages"].append(new_history_entry)
-                                    if msg_new_check["timestamp"] > latest_msg_timestamp_this_cycle:
+                                    all_threads_history[lower_thread_identifier]["messages"].append(
+                                        new_history_entry)  # Use lower_thread_identifier
+                                    if msg_new_check[
+                                        "timestamp"] > latest_msg_timestamp_this_cycle:  # This timestamp is fine as is
                                         latest_msg_timestamp_this_cycle = msg_new_check["timestamp"]
 
                         # Proceed only if new messages were found. response_first is implied to be valid.
@@ -1055,7 +1140,7 @@ def auto_respond_via_ui():
                                                 print(details_for_user_msg)
                                                 # Attempt to go back to DM list if header read fails
                                                 if not u2_utils.return_to_dm_list_from_thread(
-                                                    d_device): u2_utils.go_to_dm_list(d_device)
+                                                        d_device): u2_utils.go_to_dm_list(d_device)
                                                 active_thread_identifier = None
                                             else:
                                                 definitive_target_key = definitive_target_username_from_ui.lower()
@@ -1123,7 +1208,7 @@ def auto_respond_via_ui():
 
                                                 # Return to DM list from target's chat
                                                 if not u2_utils.return_to_dm_list_from_thread(
-                                                    d_device): u2_utils.go_to_dm_list(d_device)
+                                                        d_device): u2_utils.go_to_dm_list(d_device)
                                                 active_thread_identifier = None
                                         else:  # Failed to search_and_open_dm_with_user
                                             details_for_user_msg = f"Error: Could not find or open DM thread with user '{target_username_control_arg}' to {action_control}."
@@ -1182,7 +1267,37 @@ def auto_respond_via_ui():
                                             "details_for_user"] = "I tried to pause this chat, but there was an issue identifying the specific chat thread. Please try again or contact the owner."
                                         print(
                                             f"ERROR: LLM tried to trigger_thread_pause but thread_identifier was not available.")
+                                elif llm_function_name == view_dms_func.name:
+                                    target_thread_id_for_view = llm_args_for_second_prompt.get("thread_id")
+                                    if target_thread_id_for_view:
+                                        # Call view_dms, ensuring sender_username_ui is passed as the calling_username
+                                        # sender_username_ui is the one who sent the message to the bot
+                                        dm_history_result = view_dms(target_thread_id_for_view, sender_username_ui)
 
+                                        owner_notification_context = {
+                                            "thread_id": thread_identifier,
+                                            # This is the owner's current chat with the bot
+                                            "sender_username": sender_username_ui,  # This is the owner
+                                            "timestamp": timestamp_approx_str,
+                                            "action_details": f"Requested to view DMs for thread: {target_thread_id_for_view}"
+                                        }
+
+                                        # Format the message body for the owner
+                                        if not dm_history_result.startswith(
+                                                "Error:") and not dm_history_result.startswith("No local"):
+                                            owner_message_body = f"DM history for '{target_thread_id_for_view}':\n{dm_history_result}"
+                                        else:
+                                            owner_message_body = dm_history_result
+
+                                        send_message_to_owner_via_ui(owner_message_body, owner_notification_context)
+
+                                        llm_args_for_second_prompt[
+                                            "details_for_user"] = f"I have attempted to fetch and send the DM history for '{target_thread_id_for_view}' to your chat."
+                                    else:
+                                        llm_args_for_second_prompt[
+                                            "details_for_user"] = "I was asked to view DMs, but the target thread_id was not specified."
+                                    print(
+                                        f"Handled view_dms. Details for user: {llm_args_for_second_prompt.get('details_for_user')}")
                             elif part.text:  # Direct text reply from LLM
                                 reply_text = format_message_for_llm(part.text.strip(),
                                                                     bot_display_name=BOT_DISPLAY_NAME,
@@ -1306,9 +1421,10 @@ def auto_respond_via_ui():
                             time.sleep(random.randint(1, 2))
                             continue
 
-                    last_checked_timestamps[thread_identifier] = latest_msg_timestamp_this_cycle
+                    last_checked_timestamps[
+                        lower_thread_identifier] = latest_msg_timestamp_this_cycle  # Use lower_thread_identifier
                     print(
-                        f"Finished checks for unread thread {thread_identifier}. Last check updated to {latest_msg_timestamp_this_cycle.strftime('%H:%M')}")
+                        f"Finished checks for unread thread {thread_identifier}. Last check updated to {latest_msg_timestamp_this_cycle.strftime('%H:%M')}")  # Display original case
 
                     if active_thread_identifier:  # If still in a thread (e.g. after direct reply, before 2nd pass failed or was skipped)
                         if not u2_utils.return_to_dm_list_from_thread(d_device):

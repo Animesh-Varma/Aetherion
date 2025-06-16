@@ -2,6 +2,7 @@
 
 ## 🐞 Fixes
 - [ ] Optimize response time
+- [ ] Split long message responses
 - [ ] Back-to-back multiple function calls in a single response
 - [ ] Reimplement functions available for Instagrapi implementation for UIAutomator2 implementation
     - [ ] list_threads: list all open threads (Only callable by owner)
@@ -19,7 +20,6 @@
 ---
 
 ## 🔧 Improvements/Features
-- [ ] Split long message responses
 - [ ] Add multi-modal capabilities
 - [ ] Accept message requests
 - [ ] Inter-thread communication and response tone memory 
