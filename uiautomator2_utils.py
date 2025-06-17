@@ -2,6 +2,7 @@ import uiautomator2 as u2
 import time
 from datetime import datetime, timedelta
 import json
+import random
 
 # --- Constants for Instagram UI Automation ---
 # These resource IDs and content descriptions are used to locate UI elements.
@@ -43,7 +44,6 @@ NEW_CHAT_TO_FIELD_INPUT_RESID = "com.instagram.android:id/search_edit_text"  # "
 NEW_CHAT_USER_RESULT_ITEM_CONTAINER_RESID = "com.instagram.android:id/row_user_info_layout"
 NEW_CHAT_USER_RESULT_USERNAME_TEXT_RESID = "com.instagram.android:id/row_user_secondary_name"  # User's @username
 NEW_CHAT_USER_RESULT_FULLNAME_TEXT_RESID = "com.instagram.android:id/row_user_primary_name"  # User's full name
-# TODO: Verify NEW_CHAT_USER_RESULT_SELECT_ELEMENT_RESID; it's very generic (FrameLayout).
 # Consider if a more specific child (like a checkbox) is the actual clickable element.
 NEW_CHAT_USER_RESULT_SELECT_ELEMENT_RESID = "android.widget.FrameLayout"
 # Example: NEW_CHAT_USER_RESULT_SELECT_CHECKBOX_CLASS = "android.widget.CheckBox"
@@ -66,7 +66,6 @@ PROFILE_SEND_MESSAGE_OPTION_TEXT = "com.instagram.android:id/action_sheet_row_te
 GENERAL_SEARCH_INPUT_FIELD_RESID = "com.instagram.android:id/action_bar_search_edit_text"
 GENERAL_SEARCH_USER_TAB_TEXT = "Accounts"  # Text for "Accounts" tab in search results
 
-# TODO: Verify GENERAL_SEARCH_RESULT_ITEM_CONTAINER_CLASS, may need a more specific Resource ID.
 GENERAL_SEARCH_RESULT_ITEM_CONTAINER_CLASS = "android.widget.LinearLayout"
 # Example: GENERAL_SEARCH_RESULT_ITEM_CONTAINER_RESID = "com.instagram.android:id/row_search_user_container"
 GENERAL_SEARCH_RESULT_USERNAME_TEXT_RESID = "com.instagram.android:id/row_search_user_username"
@@ -155,32 +154,77 @@ def _get_element_identifier(ui_object_info):
         return None
     return ui_object_info.get('contentDescription') or ui_object_info.get('text')
 
+def _split_message_if_needed(message_text):
+    """
+    Splits a message into parts if it exceeds max_len, prioritizing newlines and spaces.
+    """
+    max_len = 900
+    if len(message_text) <= max_len:
+        return [message_text]
+
+    parts = []
+    while message_text:
+        if len(message_text) <= max_len:
+            parts.append(message_text)
+            break
+
+        # Determine the actual slice end index for the current part
+        # and the start index for the next part of message_text
+        part_end_idx = max_len
+        next_message_start_idx = max_len
+        strip_next = False
+
+        # Try to split at the last newline within the max_len
+        newline_idx = message_text.rfind('\n', 0, max_len)
+        if newline_idx != -1:
+            part_end_idx = newline_idx  # Part ends before the newline
+            next_message_start_idx = newline_idx + 1  # Next part starts after the newline
+            strip_next = True
+        else:
+            # Try to split at the last space within the max_len
+            space_idx = message_text.rfind(' ', 0, max_len)
+            if space_idx != -1:
+                part_end_idx = space_idx  # Part ends before the space
+                next_message_start_idx = space_idx + 1  # Next part starts after the space
+                strip_next = True
+            # else: hard cut, part_end_idx and next_message_start_idx remain max_len
+
+        parts.append(message_text[:part_end_idx])
+        message_text = message_text[next_message_start_idx:]
+
+        if strip_next:
+            message_text = message_text.lstrip()
+
+    return parts
+
 def get_username_from_open_chat_header(d_device):
     """
     Retrieves the username from the header of the currently open DM chat.
     Returns the username string or None if not found or header is empty.
     """
     header_element = d_device(resourceId=DM_CHAT_HEADER_USERNAME_TEXT_RESID)
-    if header_element.wait(timeout=1): # Short timeout, assumes chat is already open
+    if header_element.wait(timeout=1):  # Short timeout, assumes chat is already open
         header_info = header_element.info
-        username = _get_element_identifier(header_info) # Uses existing internal helper
+        username = _get_element_identifier(header_info)  # Uses existing internal helper
         if username:
             return username
         else:
             print("WARN: Chat header element found, but text/desc is empty.")
             return None
     else:
-        print("WARN: Chat header element (DM_CHAT_HEADER_USERNAME_TEXT_RESID) not found in get_username_from_open_chat_header.")
+        print(
+            "WARN: Chat header element (DM_CHAT_HEADER_USERNAME_TEXT_RESID) not found in get_username_from_open_chat_header.")
         return None
 
 def open_thread_by_username(d, target_username_in_list, max_scrolls=3):
     """Opens an existing DM thread from the DM list by scrolling and matching username."""
     # Check if already in the target chat
     header_el_check = d(resourceId=DM_CHAT_HEADER_USERNAME_TEXT_RESID)
-    if header_el_check.wait(timeout=0.5): # Use a short timeout, as this is just a pre-check
+    if header_el_check.wait(timeout=0.5):  # Use a short timeout, as this is just a pre-check
         current_chat_header_identifier = _get_element_identifier(header_el_check.info)
         if current_chat_header_identifier and target_username_in_list.lower() in current_chat_header_identifier.lower():
-            print(f"Already in correct thread with '{target_username_in_list}'. No action needed by open_thread_by_username.")
+            print(
+                f"Already in correct thread with '{target_username_in_list}'. No action needed by open_thread_by_username.")
             return True
     # If not already in the chat, then proceed to search the DM list
     print(f"Searching for thread with '{target_username_in_list}' in DM list (as not currently in it)...")
@@ -310,7 +354,7 @@ def get_messages_from_open_thread(d, bot_username, bot_sent_message_hashes, max_
                         sender_ui_name = explicit_sender_name  # Group chat, another user
                 # 3. Tertiary Check: Positional Heuristic (is_outgoing)
                 #    Only use if not bot by hash and not an explicit sender (i.e., explicit_sender_name is None)
-                elif is_outgoing: # and explicit_sender_name is None (implicitly handled by elif)
+                elif is_outgoing:  # and explicit_sender_name is None (implicitly handled by elif)
                     sender_ui_name = bot_username  # UI heuristic for bot's own message (fallback)
                 # 4. Default
                 else:
@@ -341,27 +385,50 @@ def get_messages_from_open_thread(d, bot_username, bot_sent_message_hashes, max_
     return sorted(messages, key=lambda x: x['timestamp'])
 
 def send_dm_in_open_thread(d, message_text):
-    """Sends a DM in the currently open chat thread."""
+    """
+    Sends a DM in the currently open chat thread.
+    Splits the message into parts if it's too long.
+    """
+    message_parts = _split_message_if_needed(message_text)
+    all_parts_sent = True
+
     input_field = d(resourceId=DM_CHAT_INPUT_FIELD_RESID)
     send_button = d(resourceId=DM_CHAT_SEND_BUTTON_RESID)
 
-    if not input_field.wait(timeout=3):  # Wait for input field to be present
-        print(f"ERROR: DM input field '{DM_CHAT_INPUT_FIELD_RESID}' not found.")
+    if not input_field.wait(timeout=3):  # Wait for input field to be present initially
+        print(f"ERROR: DM input field '{DM_CHAT_INPUT_FIELD_RESID}' not found. Cannot send message.")
         return False
-    if not safe_click(input_field):  # Click to focus
-        print(f"ERROR: Could not click DM input field '{DM_CHAT_INPUT_FIELD_RESID}'.")
-        return False
-    d.clear_text()  # Clear any existing text
-    time.sleep(0.01)
-    d.send_keys(message_text)  # Type the message
-    time.sleep(0.5)
-    if not safe_click(send_button):
-        print(f"ERROR: DM send button '{DM_CHAT_SEND_BUTTON_RESID}' not found or clickable.")
-        return False
-    print(f"DM sent (attempted): '{message_text[:30]}...'")
-    time.sleep(0.5)  # Wait for message to send/UI to update
-    return True
 
+    for i, part in enumerate(message_parts):
+        print(f"Attempting to send part {i + 1}/{len(message_parts)}: '{part[:30]}...'")
+        if not safe_click(input_field):  # Click to focus for each part
+            print(f"ERROR: Could not click DM input field '{DM_CHAT_INPUT_FIELD_RESID}' for part {i + 1}.")
+            all_parts_sent = False
+            break
+        d.clear_text()  # Clear any existing text
+        time.sleep(0.05)  # Shorter sleep after clear
+        d.send_keys(part)  # Type the message part
+        time.sleep(0.1)  # Shorter sleep after send_keys
+
+        if not safe_click(send_button):
+            print(f"ERROR: DM send button '{DM_CHAT_SEND_BUTTON_RESID}' not found or clickable for part {i + 1}.")
+            all_parts_sent = False
+            break
+
+        print(f"DM part {i + 1}/{len(message_parts)} sent (attempted): '{part[:30]}...'")
+
+        if i < len(message_parts) - 1:  # If not the last part
+            delay = random.uniform(1.0, 2.0)
+            print(f"Waiting for {delay:.2f}s before sending next part...")
+            time.sleep(delay)
+
+    if all_parts_sent:
+        print("All message parts sent successfully.")
+    else:
+        print("Failed to send one or more message parts.")
+
+    time.sleep(0.2)  # Wait for the last message to send/UI to update
+    return all_parts_sent
 
 def go_to_user_profile(d, target_username):
     """Navigates to a user's profile page using Instagram's general search function."""
