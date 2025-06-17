@@ -264,8 +264,18 @@ def view_dms(thread_id: str, calling_username: str) -> str:
     for msg in thread_history["messages"]:
         sender = msg.get("username", "Unknown User")
         text = msg.get("text", "")
-        timestamp = msg.get("timestamp", "No timestamp")
-        formatted_messages.append(f"[{timestamp}] {sender}: {text}")
+        raw_timestamp_str = msg.get("timestamp", "No timestamp")
+        formatted_timestamp_display = ""
+        if raw_timestamp_str != "No timestamp":
+            try:
+                # Assuming the stored timestamp is in '%Y-%m-%d %H:%M:%S' format
+                dt_object = datetime.strptime(raw_timestamp_str, '%Y-%m-%d %H:%M:%S')
+                formatted_timestamp_display = dt_object.strftime("Date: %B %d, %Y - Time: %Hh %Mm %Ss")
+            except ValueError:
+                formatted_timestamp_display = f"Timestamp (raw): [{raw_timestamp_str}]"
+        else:
+            formatted_timestamp_display = "Timestamp: [Not Available]"
+        formatted_messages.append(f"[{formatted_timestamp_display}]\n{sender}: {text}\n")
 
     if len(formatted_messages) == 1:  # Only header was added
         return f"No messages found in the local history for thread: {thread_id}"
@@ -419,7 +429,7 @@ def auto_respond_via_ui():
                         latest_message_id = new_ui_messages_to_process[-1]['id']
                         last_message_data = new_ui_messages_to_process[-1]
                         sender_username_ui = last_message_data["user_id"]
-                        timestamp_approx_str = last_message_data["timestamp"].strftime("%Y-%m-%d %H:%M:%S")
+                        timestamp_approx_str = last_message_data["timestamp"].strftime("Date: %B %d, %Y - Time: %Hh %Mm %Ss")
                         sender_full_name_ui = "Unknown (UI)"  # Placeholder
                         sender_follower_count_ui = 0  # Placeholder
 
