@@ -2,58 +2,59 @@
 
 ## 🐞 Fixes
 - [ ] Optimize response time
-- [ ] Back-to-back multiple function calls in a single response
-- [ ] Reimplement functions available for Instagrapi implementation for UIAutomator2 implementation
-    - [ ] list_threads: list all open threads (Only callable by owner)
-    - [ ] view_dms: view DMs in a thread (Only callable by owner)
-    - [ ] fetch_followers_followings: fetch followers and followings of any given account if visible to bot (currently a stub)
-    - [x] pause_response: User/owner-triggered pause_response, each with different lift rules (special instance for owner) (June 16, 2025)
-    - [x] resume_response: keyword-based resume_response function to resume auto response without wasting API usage (June 16, 2025)
+- [ ] Support back-to-back multiple function calls in a single response
+- [ ] Reimplement functions from the Instagrapi implementation for UIAutomator2 implementation:
+    - [ ] `list_threads`: List all open threads (only callable by owner)
+    - [ ] `view_dms`: View DMs in a thread (only callable by owner)
+    - [ ] `fetch_followers_followings`: Fetch followers and followings of any given account, if visible to the bot (currently a stub)
+    - [x] `pause_response`: Owner/user-triggered pause, each with different lift rules (special instance for owner) (June 16, 2025)
+    - [x] `resume_response`: Keyword-based resume function to minimize API usage (June 16, 2025)
 - [x] Split long message responses (June 18, 2025)
-- [x] Fix the response order of multiple unread threads (June 5, 2025)
-- [x] For messages sent through function call, it counts them as being sent by the user though they are sent by the bot. (June 5, 2025)
-- [x] For larger responses sent by the bot it counts them as being sent by the user (June 5, 2025)
-- [x] Reliable multiple API calls for function call confirmation (June 4, 2025)
-- [x] Fix message history and phrasing issues (June 4, 2025)
-- [x] Self-calling of notify_owner function by LLM without explicit mention working inconsistency (June 4, 2025)
+- [x] Fix response order for multiple unread threads (June 5, 2025)
+- [x] Messages sent via function calls were being counted as user-sent instead of bot-sent (June 5, 2025)
+- [x] Large responses sent by the bot were incorrectly counted as user messages (June 5, 2025)
+- [x] Ensure reliable API confirmation for multiple function calls (June 4, 2025)
+- [x] Fix message history tracking and phrasing issues (June 4, 2025)
+- [x] `notify_owner` function self-calling inconsistently without explicit prompt (June 4, 2025)
 
 ---
 
 ## 🔧 Improvements/Features
-- [ ] Add multi-modal capabilities
+- [ ] Add multimodal capabilities
 - [ ] Accept message requests
-- [ ] Inter-thread communication and response tone memory 
-- [ ] If an error is encountered, share all visible elements with LLM for possible troubleshooting and situational awareness 
+- [ ] Enable inter-thread communication and response tone memory
+- [ ] Share all visible UI elements with the LLM upon error for better troubleshooting
 - [ ] Optimize system prompts
-- [ ] Upgrade from Google.generativeai to python-genai **(Before August 31st, 2025)** 
-- [ ] Allow bot to know updates made to it
-- [ ] Change bots source code without actually stopping it (Runtime edit)
-- [ ] Create an association between the name and the username of Instagram accounts 
-- [ ] Natural typing input for Instagram instead of pasting text 
-- [ ] Ollama integration
+- [ ] Upgrade from `google.generativeai` to `python-genai` **(Before August 31, 2025)**
+- [ ] Enable bot to recognize updates made to itself
+- [ ] Support runtime editing without stopping the bot
+- [ ] Associate Instagram display names with usernames
+- [ ] Enable natural typing input instead of pasting text
+- [ ] Integrate with Ollama
 - [ ] Follow/unfollow accounts
 - [ ] Implement goal decomposition for complex tasks
-- [ ] Times-based auto trigger
-- [ ] Implement API key cycling to bypass quota limits
-- [ ] Login and Logoff notification for subscribed users
-- [ ] compartmentalized with different instances for each user, owner, and function calling each with different privileges
-- [x] Identification of the sender of a DM using the send_message function (June 5, 2025)
-- [x] Messages from the owner shouldn't include the owner's username and should be rephrased when sent by the bot (June 5, 2025)
-- [x] Message before function call (June 5, 2025)
-- [x] Improve bot and user msg distinction logic (June 5, 2025)
-- [x] Check for new messages before sending a response from the API (June 4, 2025)
+- [ ] Add time-based auto triggers
+- [ ] Cycle API keys to bypass quota limits
+- [ ] Notify subscribed users on login/logout events
+- [ ] Implement instance-level compartmentalization for users, owners, and function calls with privilege separation
+- [x] Identify the DM sender while using the `send_message` function (June 5, 2025)
+- [x] Owner messages should exclude the username and be rephrased by the bot (June 5, 2025)
+- [x] Send a message before and after a function call (June 5, 2025)
+- [x] Improve bot vs. user message distinction logic (June 5, 2025)
+- [x] Check for new messages before sending a response via the API (June 4, 2025)
 
 ---
 
 ## 📚 Documentation
-- [ ] Review README.md 
-- [x] Review README.md (June 4, 2025)
+- [ ] Review `README.md`
+- [x] Review `README.md` (June 4, 2025)
 
 ---
 
 ## 🧹 Chores
-- [ ] Update requirements.txt
-- [ ] Update TODO.md with dates for completed tasks 
+- [ ] Update `requirements.txt`
+- [ ] Merge `uiautomator2_imp` branch with `master`
+- [x] Update `TODO.md` with dates for completed tasks (June 18, 2025)
 
 ---
 
