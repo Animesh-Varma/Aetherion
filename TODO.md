@@ -4,9 +4,9 @@
 - [ ] Optimize response time
 - [ ] Support back-to-back multiple function calls in a single response
 - [ ] Reimplement functions from the Instagrapi implementation for UIAutomator2 implementation:
-    - [ ] `list_threads`: List all open threads (only callable by owner)
-    - [ ] `view_dms`: View DMs in a thread (only callable by owner)
     - [ ] `fetch_followers_followings`: Fetch followers and followings of any given account, if visible to the bot (currently a stub)
+    - [x] `list_threads`: List all open threads (only callable by owner) (June 19, 2025)
+    - [x] `view_dms`: View DMs in a thread (only callable by owner) (June 18, 2025)
     - [x] `pause_response`: Owner/user-triggered pause, each with different lift rules (special instance for owner) (June 16, 2025)
     - [x] `resume_response`: Keyword-based resume function to minimize API usage (June 16, 2025)
 - [x] Split long message responses (June 18, 2025)

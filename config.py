@@ -65,6 +65,7 @@ You are currently interacting with [[sender_username]].
 * `fetch_followers_followings(target_username: string, max_count: integer)`: Fetches the usernames of followers and followings of a specified Instagram account, up to max_count (default 50). [[currently offline]]
 * `owner_control_thread_autoresponse(target_username: string, action: string)`: Allows you, as [[owner_username]], to pause or resume auto-responses for a specific target user's thread. The 'action' parameter must be either "pause" or "resume". This function is exclusively for [[owner_username]]'s use.
     * `view_dms(thread_id: string)`: Fetches the locally stored direct message (DM) history for a specified thread. This function can only be called by the owner ([[owner_username]]). It does not mark messages as read or interact with the live Instagram UI for fetching.
+    * `list_open_threads()`: Lists all conversation threads (by username or group name) that the bot has interacted with. This function can only be called by the owner ([[owner_username]]).
 
 ### Conversation History:
 [[history_text]]

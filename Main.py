@@ -54,6 +54,16 @@ notify_owner_func = FunctionDeclaration(
     }
 )
 
+# Add the new function declaration here
+list_open_threads_func = FunctionDeclaration(
+    name="list_open_threads",
+    description=f"Lists all conversation threads (by username or group name) that the bot has interacted with. This function can only be called by the owner ({OWNER_USERNAME}).",
+    parameters={
+        "type": "object",
+        "properties": {}  # No parameters
+    }
+)
+
 view_dms_func = FunctionDeclaration(
     name="view_dms",
     description=f"Fetches the locally stored direct message (DM) history for a specified thread. This function can only be called by the owner ({OWNER_USERNAME}). It does not mark messages as read or interact with the live Instagram UI for fetching.",
@@ -153,7 +163,8 @@ tools = Tool(function_declarations=[
     fetch_followers_followings,
     trigger_thread_pause_func,
     owner_control_thread_func,
-    view_dms_func
+    view_dms_func,
+    list_open_threads_func
 ])
 model = genai.GenerativeModel("gemini-2.5-flash-preview-05-20", tools=tools)
 
@@ -281,6 +292,36 @@ def view_dms(thread_id: str, calling_username: str) -> str:
         return f"No messages found in the local history for thread: {thread_id}"
 
     return "\n".join(formatted_messages)
+
+
+def list_open_threads(calling_username: str) -> str:
+    '''
+    Lists all unique thread identifiers (usernames/group names) that the bot
+    has interacted with. Only callable by the owner.
+
+    Args:
+        calling_username: The username of the user calling this function.
+
+    Returns:
+        A string containing the list of thread IDs (each on a new line)
+        or an error/info message.
+    '''
+    global all_threads_history, OWNER_USERNAME
+
+    if calling_username.lower() != OWNER_USERNAME.lower():
+        return "Error: You are not authorized to use this function."
+
+    if not all_threads_history:
+        return "No interacted threads found in local history."
+
+    thread_ids = list(all_threads_history.keys())
+
+    if not thread_ids:  # Should be covered by 'if not all_threads_history' but good as a safeguard
+        return "No interacted threads found in local history (empty list)."
+
+    # Format with each thread ID on a new line, prefixed with "- "
+    formatted_thread_list = "\n".join([f"- {tid}" for tid in thread_ids])
+    return f"\nInteracted threads:\n{formatted_thread_list}\n"
 
 
 def _perform_back_press(d_device_internal, LLM_HISTORY_LENGTH=10):
@@ -429,7 +470,8 @@ def auto_respond_via_ui():
                         latest_message_id = new_ui_messages_to_process[-1]['id']
                         last_message_data = new_ui_messages_to_process[-1]
                         sender_username_ui = last_message_data["user_id"]
-                        timestamp_approx_str = last_message_data["timestamp"].strftime("Date: %B %d, %Y - Time: %Hh %Mm %Ss")
+                        timestamp_approx_str = last_message_data["timestamp"].strftime(
+                            "Date: %B %d, %Y - Time: %Hh %Mm %Ss")
                         sender_full_name_ui = "Unknown (UI)"  # Placeholder
                         sender_follower_count_ui = 0  # Placeholder
 
@@ -1308,6 +1350,31 @@ def auto_respond_via_ui():
                                             "details_for_user"] = "I was asked to view DMs, but the target thread_id was not specified."
                                     print(
                                         f"Handled view_dms. Details for user: {llm_args_for_second_prompt.get('details_for_user')}")
+                                elif llm_function_name == list_open_threads_func.name:  # Ensure list_open_threads_func is accessible
+                                    print(f"LLM requested to list open threads. Caller: {sender_username_ui}")
+                                    # sender_username_ui is the user who sent the message that triggered this.
+                                    # The list_open_threads Python function itself will verify if sender_username_ui is the OWNER_USERNAME.
+
+                                    threads_list_result = list_open_threads(
+                                        sender_username_ui)  # Call the Python function
+
+                                    # Send the result to the owner (who is sender_username_ui in this case if authorized)
+                                    # Using send_message_to_owner_via_ui for consistent formatting and delivery.
+                                    owner_notification_context = {
+                                        "thread_id": thread_identifier,  # This is the owner's current chat with the bot
+                                        "sender_username": sender_username_ui,  # This is the owner
+                                        "timestamp": timestamp_approx_str,  # Timestamp of the owner's command message
+                                        "action_details": f"Requested to list open threads. Result: {threads_list_result[:100]}"
+                                        # Log a snippet
+                                    }
+                                    # The list_open_threads function already prepends "Error:" or "Interacted threads:"
+                                    # So threads_list_result can be sent directly as the message body.
+                                    send_message_to_owner_via_ui(threads_list_result, owner_notification_context)
+
+                                    llm_args_for_second_prompt[
+                                        "details_for_user"] = f"I have processed the request to list interacted threads. The list has been sent to your chat: '{threads_list_result[:50]}...'."
+                                    print(
+                                        f"Handled list_open_threads. Details for user: {llm_args_for_second_prompt.get('details_for_user')}")
                             elif part.text:  # Direct text reply from LLM
                                 reply_text = format_message_for_llm(part.text.strip(),
                                                                     bot_display_name=BOT_DISPLAY_NAME,
